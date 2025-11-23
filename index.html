@@ -62,7 +62,7 @@
 现有的步态识别研究主要采用二维表示法，如受限场景中的人体轮廓或骨架。然而，人类是在无约束的三维空间中生活和行走的，因此将三维人体投影到二维平面上会丢弃很多关键信息，如<span style="background-color: rgb(255, 212, 0)">步态识别的视角、形状和动态</span>。因此，本文旨在探索用于野外步态识别的<span style="background-color: rgba(162, 138, 229, 0.5)">密集三维表征</span>，这是一个实用但被忽视的问题。特别是，我们提出了一个新颖的框架来探索用于步态识别的人体三维带皮多人线性（<span style="background-color: rgba(162, 138, 229, 0.5)">Skinned Multi-Person Linear Model</span>，SMPL）模型，并将其命名为 SMPLGait。我们的框架有两个精心设计的分支，其中一个从<span style="background-color: rgba(229, 110, 238, 0.5)">剪影</span>中提取<u>外观特征</u>，另一个从<span style="background-color: rgba(229, 110, 238, 0.5)">三维 SMPL 模型</span>中学习<u>三维视点和形状知识</u>。此外，由于缺乏合适的数据集，我们建立了第一个基于三维表示的大规模步态识别数据集，名为 Gait3D。该数据集包含 4000 个受试者和超过 25000 个序列，这些序列是从无约束室内场景中的 39 个摄像头中提取的。更重要的是，它提供了<u>从视频帧中恢复的三维 SMPL 模型</u>，可以提供<u>密集的身体形状、视角和动态三维信息</u>。在 Gait3D 的基础上，我们将我们的方法与现有的步态识别方法进行了全面比较，这反映了我们框架的卓越性能以及三维表示法在野外步态识别中的潜力。
 </li>
 <li>
-SMPL模型：<a href="zotero://note/u/C9UUB8UQ/?section=SMPL%20%E6%A8%A1%E5%9E%8B" rel="noopener noreferrer nofollow">SMPL 模型 - SMPL 模型</a>
+SMPL模型：<strong><a href="./SMPL.html">SMPL模型</a>
 </li>
 </ul>
 </li>
@@ -120,7 +120,7 @@ SMPL模型：<a href="zotero://note/u/C9UUB8UQ/?section=SMPL%20%E6%A8%A1%E5%9E%8
 <pre><strong>定义</strong>：使用二进制的黑白剪影图（Silhouette）作为输入。
 <strong>优点</strong>：计算简单，包含整体体型信息。</pre>
 <pre><strong>外观模态 (Appearance-based):
- &nbsp;轮廓图 (Silhouettes/GEI):</strong> 学习如何从RGB视频中提取二值化轮廓（通常使用分割网络）。了解<strong>GEI(步态能量图)</strong> 的概念，虽然现在常用序列帧，但GEI是基础。<a href="zotero://note/u/3HSMAF5V/?section=GEIs%20%EF%BC%9AGait%20Energy%20Images%EF%BC%8C%E6%AD%A5%E6%80%81%E8%83%BD%E9%87%8F%E5%9B%BE" rel="noopener noreferrer nofollow">GEIs ：Gait Energy Images，步态能量图 - GEIs ：Gait Energy Images，步态能量图</a>
+ &nbsp;轮廓图 (Silhouettes/GEI):</strong> 学习如何从RGB视频中提取二值化轮廓（通常使用分割网络）。了解<strong>GEI(步态能量图)</strong> 的概念，虽然现在常用序列帧，但GEI是基础。<a href="./GEIs.html">GEIs ：Gait Energy Images，步态能量图 - GEIs ：Gait Energy Images，步态能量图</a>
  &nbsp;<strong>人体解析 (Human Parsing):</strong> 这是一个关键的高级概念。学习Parsing图如何将人体分为“躯干”、“手臂”、“背包”、“大衣”等语义区域。这是解决“换衣”和“携带物”干扰的核心技术。</pre>
 <ul>
 <li>
