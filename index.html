@@ -1,0 +1,525 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><div class="zotero-notes"><div class="zotero-note"><h1><strong><span style="color: rgb(27, 28, 29)">面向开放场景的多模态步态识别鲁棒性增强</span></strong></h1>
+<hr>
+<p><span style="color: rgb(27, 28, 29)">理解这一课题，需要梳理出一条从“传统困境”到“多模态破局”的逻辑脉络。</span></p>
+<p><span style="color: rgb(27, 28, 29)">以下是基于核心论文的系统梳理与策略分析：</span></p>
+<hr>
+<h2><span style="color: rgb(27, 28, 29)">第一部分：问题定义的演进——从“实验室”走向“开放场景”</span></h2>
+<p><span style="color: rgb(27, 28, 29)">要研究“开放场景”的鲁棒性，首先必须理解场景是如何变化的。数据集的演进直接定义了算法需要解决的核心难点。</span></p>
+<h3><strong><span style="color: rgb(27, 28, 29)">实验室受控阶段 (The Lab Era</span>/Controlled Settings<span style="color: rgb(27, 28, 29)">):</span></strong></h3>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">代表作：</span></strong><span style="color: rgb(27, 28, 29)"> </span><strong><span style="color: rgb(27, 28, 29)">CASIA-B</span></strong><span style="color: rgb(27, 28, 29)"> (2006) 和 </span><strong><span style="color: rgb(27, 28, 29)">OU-MVLP</span></strong><span style="color: rgb(27, 28, 29)"> (2018) 。</span></p>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://ieeexplore.ieee.org/abstract/document/1699873/" rel="noopener noreferrer nofollow">A framework for evaluating the effect of view angle, clothing and carrying condition on gait recognition</a> - S. Yu et al., <strong>ICPR2006</strong> (⚡<strong><em><span style="background-color: rgb(241, 152, 55)">CASIA-B</span></em></strong><span style="background-color: rgb(241, 152, 55)"> </span><a href="http://www.cbsr.ia.ac.cn/english/Gait%20Databases.asp" rel="noopener noreferrer nofollow">[download]</a>)<span class="citation">(<a href="zotero://select/library/items/T2NXKZF6">Shiqi Yu 等, 2006</a>)</span></p>
+<ul>
+<li>
+步态识别越来越受到研究人员的关注，但目前仍没有标准的评估方法来比较不同步态识别算法的性能。本文提出了一个框架，试图解决这一问题。该框架由一个大型步态数据库、大量精心设计的实验和一些评估指标组成。数据库中有 124 个受试者，步态数据是从 <span style="background-color: rgba(95, 178, 54, 0.5)">11 个视角</span>采集的。数据库中分别考虑了三种变化，即<span style="background-color: rgba(95, 178, 54, 0.5)">视角、服装和携带条件</span>的变化。该数据库是现有数据库中最大的数据库之一。该框架设计了三组实验，共包括 363 个实验。提出了一些评价步态识别算法的指标。
+</li>
+</ul>
+</li>
+<li>
+<p><a href="https://link.springer.com/article/10.1186/s41074-018-0039-6" rel="noopener noreferrer nofollow">Multi-view large population gait dataset and its performance evaluation for cross-view gait recognition</a> - N. Takemura et al., IPSJ2018 (⚡<strong><em><span style="background-color: rgb(241, 152, 55)">OUMVLP</span></em></strong> <a href="http://www.am.sanken.osaka-u.ac.jp/BiometricDB/GaitMVLP.html" rel="noopener noreferrer nofollow">[download]</a>)<span class="citation">(<a href="zotero://select/library/items/V8TQ2AYX">Takemura 等, 2018</a>)</span></p>
+<ul>
+<li>
+本文介绍了世界上最大的具有广泛视角变化的步态数据库--"OU-ISIR 步态数据库，多视角大群体数据集（OU-MVLP）"，并将其应用于对基于视觉的跨视角步态识别进行统计上可靠的性能评估。具体来说，我们构建了一个步态数据集，其中包括来自 0°-90°、180°-270° 等 14 个视角的 10307 名受试者（5114 名男性和 5193 名女性）。此外，我们还评估了对视角具有鲁棒性的各种步态识别方法。通过使用我们的数据集，我们可以充分利用需要大量训练样本的先进方法，例如基于 CNN 的跨视角步态识别方法，并验证了此类方法系列的有效性。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">特点：</span></strong><span style="color: rgb(27, 28, 29)"> 这些早期数据集主要</span><u><span style="color: rgb(27, 28, 29)">关注视角变化（View Angle）和简单的协变量（如穿大衣、背包）</span></u><span style="color: rgb(27, 28, 29)">。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">局限：</span></strong><span style="color: rgb(27, 28, 29)"> 背景干净，光照受控。在此类数据上训练的模型，一旦放到真实复杂的监控视频中，性能会急剧下降。</span>
+</li>
+</ul>
+<h3><strong><span style="color: rgb(27, 28, 29)">开放场景阶段 (The Wild Era):</span></strong></h3>
+<ul>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">核心转折点：</span></strong><span style="color: rgb(27, 28, 29)"> </span><strong><span style="color: rgb(27, 28, 29)">GREW</span></strong><span style="color: rgb(27, 28, 29)"> (2021)和 </span><strong><span style="color: rgb(27, 28, 29)">Gait3D</span></strong><span style="color: rgb(27, 28, 29)"> (2022)。</span>
+</li>
+</ul>
+<blockquote>
+<ul>
+<li>
+<p><a href="http://openaccess.thecvf.com/content/ICCV2021/html/Zhu_Gait_Recognition_in_the_Wild_A_Benchmark_ICCV_2021_paper.html" rel="noopener noreferrer nofollow">Gait recognition in the wild: A benchmark</a> - Z. Zhu et al., <strong>ICCV2021</strong>(⚡<strong><em><span style="background-color: rgb(255, 102, 102)">GREW</span></em></strong> <a href="https://www.grew-benchmark.org/" rel="noopener noreferrer nofollow">[download]</a>)<span class="citation">(<a href="zotero://select/library/items/5QQ9F5E4">Zhu 等</a>)</span></p>
+<ul>
+<li>
+步态基准使研究界有能力训练和评估高性能步态识别系统。尽管人们在跨视角识别方面做出了越来越多的努力，但学术界仍受到目前在受控环境中捕获的现有数据库的限制。在本文中，我们为<span style="background-color: rgb(255, 102, 102)">野外步态识别（GREW）</span>提供了一个新的基准。GREW 数据集由<span style="background-color: rgba(95, 178, 54, 0.5)">自然视频</span>构建而成，其中包含开放系统中的数百个摄像头和数千小时的视频流。通过大量人工注释，GREW 包含 26K 个身份和 128K 个序列，具有丰富的属性，可用于<span style="background-color: rgba(95, 178, 54, 0.5)">无约束</span>步态识别。此外，我们还添加了超过 233K 个序列的<span style="background-color: rgba(95, 178, 54, 0.5)">干扰项</span>，使其更适合真实世界的应用。与目前流行的预定义跨视图数据集相比，GREW 具有多样化和实用的视图变化，以及更多的自然挑战因素。据我们所知，这是第一个用于野生步态识别的大规模数据集。有了这个基准，我们对无约束步态识别问题进行了剖析。我们探索了具有代表性的基于外观和基于模型的方法，并建立了综合基准。实验结果表明 (1) 提议的 GREW 基准对于训练和评估野外步态识别器是必要的。(2) 对于最先进的步态识别方法来说，还有很大的改进空间。(3) GREW 基准可用作受控步态识别的有效预训练。
+</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li>
+<p><a href="https://openaccess.thecvf.com/content/CVPR2022/html/Zheng_Gait_Recognition_in_the_Wild_With_Dense_3D_Representations_and_CVPR_2022_paper.html" rel="noopener noreferrer nofollow">Gait Recognition in the Wild with Dense 3D Representations and A Benchmark</a> - J. Zheng et al., <strong>CVPR2022</strong> (⚡<strong><em><span style="background-color: rgb(255, 102, 102)">Gait3D</span></em></strong> <a href="https://gait3d.github.io/" rel="noopener noreferrer nofollow">[download]</a>)<span class="citation">(<a href="zotero://select/library/items/GNSK8YW7">Zheng 等, 2022</a>)</span></p>
+<ul>
+<li>
+现有的步态识别研究主要采用二维表示法，如受限场景中的人体轮廓或骨架。然而，人类是在无约束的三维空间中生活和行走的，因此将三维人体投影到二维平面上会丢弃很多关键信息，如<span style="background-color: rgb(255, 212, 0)">步态识别的视角、形状和动态</span>。因此，本文旨在探索用于野外步态识别的<span style="background-color: rgba(162, 138, 229, 0.5)">密集三维表征</span>，这是一个实用但被忽视的问题。特别是，我们提出了一个新颖的框架来探索用于步态识别的人体三维带皮多人线性（<span style="background-color: rgba(162, 138, 229, 0.5)">Skinned Multi-Person Linear Model</span>，SMPL）模型，并将其命名为 SMPLGait。我们的框架有两个精心设计的分支，其中一个从<span style="background-color: rgba(229, 110, 238, 0.5)">剪影</span>中提取<u>外观特征</u>，另一个从<span style="background-color: rgba(229, 110, 238, 0.5)">三维 SMPL 模型</span>中学习<u>三维视点和形状知识</u>。此外，由于缺乏合适的数据集，我们建立了第一个基于三维表示的大规模步态识别数据集，名为 Gait3D。该数据集包含 4000 个受试者和超过 25000 个序列，这些序列是从无约束室内场景中的 39 个摄像头中提取的。更重要的是，它提供了<u>从视频帧中恢复的三维 SMPL 模型</u>，可以提供<u>密集的身体形状、视角和动态三维信息</u>。在 Gait3D 的基础上，我们将我们的方法与现有的步态识别方法进行了全面比较，这反映了我们框架的卓越性能以及三维表示法在野外步态识别中的潜力。
+</li>
+<li>
+SMPL模型：<a href="zotero://note/u/C9UUB8UQ/?section=SMPL%20%E6%A8%A1%E5%9E%8B" rel="noopener noreferrer nofollow">SMPL 模型 - SMPL 模型</a>
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+<pre><strong>SMPL模型 (Skinned Multi-Person Linear Model):
+ &nbsp;定义</strong>：一种参数化的3D人体模型，通过少量的参数（形状β和姿态θ）来重建逼真的3D人体网格。
+ &nbsp;<strong>核心优势</strong>：提供了比骨骼更稠密的3D表征，同时解耦了<strong>体型（Shape）和姿态（Pose）</strong>。它能从视频中恢复出剥离了衣物干扰的“纯净”人体3D形状。
+ &nbsp;<strong>应用</strong>：在<strong>Gait3D</strong>中被用来解决跨视角和2D投影丢失信息的问题。</pre>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">关键信息：</span></strong></p>
+<ul>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">GREW</span></strong><span style="color: rgb(27, 28, 29)"> 包含了数千小时的自然视频流，引入了大量干扰项（Distractor set）和复杂的遮挡。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">Gait3D</span></strong><span style="color: rgb(27, 28, 29)"> 强调了人类是在无约束的三维空间中行走的，二维投影会丢失关键信息，因此它提供了从视频中恢复的3D SMPL模型。</span>
+</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">研究启示：</span></strong><span style="color: rgb(27, 28, 29)"> 鲁棒性研究必须基于 </span><strong><span style="color: rgb(27, 28, 29)">GREW</span></strong><span style="color: rgb(27, 28, 29)"> 或 </span><strong><span style="color: rgb(27, 28, 29)">Gait3D</span></strong><span style="color: rgb(27, 28, 29)"> 进行评估，而非仅使用 CASIA-B。</span><strong><span style="color: rgb(27, 28, 29)">LidarGait</span></strong> <span style="color: rgb(27, 28, 29)">和 </span><strong><span style="color: rgb(27, 28, 29)">FreeGait</span></strong><span style="color: rgb(27, 28, 29)">进一步将场景扩展到了激光雷达和更自由的环境，指出了仅靠RGB摄像头的局限性。</span>
+</li>
+</ul>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://arxiv.org/abs/2211.10598" rel="noopener noreferrer nofollow">LIDAR GAIT: Benchmarking 3D Gait Recognition with Point Clouds</a> - C. Shen et al., <strong>CVPR2023</strong> (⚡<strong><em>SUSTech1K</em></strong> <a href="https://lidargait.github.io/" rel="noopener noreferrer nofollow">[download]</a>)</p>
+<ul>
+<li>
+基于视频的步态识别在受限场景中取得了令人瞩目的成果。然而，视觉相机忽略了人体三维结构信息，这限制了在三维野生环境中进行步态识别的可行性。这项工作不是<u>从图像中提取步态特征</u>，而是<span style="background-color: rgba(95, 178, 54, 0.5)">从点云中探索精确的三维步态特征</span>，并提出了一个简单而高效的三维步态识别框架，称为 <strong><span style="background-color: rgb(255, 102, 102)">LidarGait</span></strong>。我们提出的方法<u>将稀疏的点云投射到深度图中</u>，以学习具有三维几何信息的表征，其效果明显优于现有的基于点的方法和基于摄像头的方法。由于缺乏点云数据集，我们建立了第一个<span style="background-color: rgba(162, 138, 229, 0.5)">基于激光雷达</span>的大规模步态识别数据集 SUSTech1K，该数据集由<span style="background-color: rgba(46, 168, 229, 0.5)">激光雷达传感器和 RGB 摄像机</span>采集。该数据集包含来自 1,050 名受试者的 25,239 个序列，涵盖多种变化，包括<span style="background-color: rgba(229, 110, 238, 0.5)">可见度、视图、遮挡物、服装、携带和场景</span>。大量实验表明：（1）三维结构信息是步态识别的重要特征。(2) LidarGait 的性能明显优于现有的基于点和剪影的方法，同时它还能提供稳定的跨视角结果。(3) 在室外环境中，激光雷达传感器在步态识别方面优于 RGB 摄像机。
+</li>
+</ul>
+</li>
+<li>
+<p><a href="https://arxiv.org/pdf/2211.12371" rel="noopener noreferrer nofollow">Gait Recognition in Large-scale Free Environment via Single LiDAR</a> - X. Han et al. ✨ <strong>Oral Paper</strong> ✨</p>
+<ul>
+<li>
+人的步态识别在多媒体中至关重要，它可以在没有直接互动的情况下通过行走模式进行识别，从而加强了智能家居、医疗保健和非侵入式安防等现实世界应用中各种媒体形式的整合。激光雷达捕捉深度的能力使其成为机器人感知的关键，也为现实世界的步态识别带来了希望。本文以<span style="background-color: rgba(162, 138, 229, 0.5)">单个激光雷达</span>为基础，介绍了用于稳健步态识别的<span style="background-color: rgba(162, 138, 229, 0.5)">分层多表征特征交互网络（HMRNet）</span>。目前主流的基于激光雷达步态数据集主要来自预定轨迹的受控环境，与真实世界的场景仍有差距。为了促进基于激光雷达的步态识别研究，我们引入了 <span style="background-color: rgb(255, 212, 0)">FreeGait</span>，这是一个来自<span style="background-color: rgba(46, 168, 229, 0.5)">大规模、无约束环境</span>的综合步态数据集，其中丰富了多模态、多变的 2D/3D 数据。值得注意的是，我们的方法在先前的数据集（SUSTech1K）和 FreeGait 上都取得了一流的性能。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+<pre><strong>点云 (Point Clouds):
+ &nbsp;定义</strong>：由激光雷达（LiDAR）采集的一组三维空间点的数据。
+ &nbsp;<strong>优势</strong>：对光照不敏感（解决夜间/阴影问题），提供精确的深度信息，在跨视角任务上非常稳定。</pre>
+<hr>
+<h2><span style="color: rgb(27, 28, 29)">第二部分：单模态的瓶颈与多模态的兴起</span></h2>
+<p><span style="color: rgb(27, 28, 29)">在开放场景下，单一模态（如轮廓或骨骼）表现出明显的脆弱性。</span></p>
+<h3><span style="color: rgb(27, 28, 29)">1. 基于</span><strong><span style="background-color: rgb(255, 212, 0)">外观/轮廓 (Appearance-based / Silhouette)</span></strong><span style="color: rgb(27, 28, 29)">的局限</span></h3>
+<pre><strong>定义</strong>：使用二进制的黑白剪影图（Silhouette）作为输入。
+<strong>优点</strong>：计算简单，包含整体体型信息。</pre>
+<pre><strong>外观模态 (Appearance-based):
+ &nbsp;轮廓图 (Silhouettes/GEI):</strong> 学习如何从RGB视频中提取二值化轮廓（通常使用分割网络）。了解<strong>GEI(步态能量图)</strong> 的概念，虽然现在常用序列帧，但GEI是基础。<a href="zotero://note/u/3HSMAF5V/?section=GEIs%20%EF%BC%9AGait%20Energy%20Images%EF%BC%8C%E6%AD%A5%E6%80%81%E8%83%BD%E9%87%8F%E5%9B%BE" rel="noopener noreferrer nofollow">GEIs ：Gait Energy Images，步态能量图 - GEIs ：Gait Energy Images，步态能量图</a>
+ &nbsp;<strong>人体解析 (Human Parsing):</strong> 这是一个关键的高级概念。学习Parsing图如何将人体分为“躯干”、“手臂”、“背包”、“大衣”等语义区域。这是解决“换衣”和“携带物”干扰的核心技术。</pre>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">经典方法：</span></strong><span style="color: rgb(27, 28, 29)"> </span><strong><span style="color: rgb(27, 28, 29)">GaitSet</span></strong><span style="color: rgb(27, 28, 29)"> 和 </span><strong><span style="color: rgb(27, 28, 29)">GaitPart</span></strong><span style="color: rgb(27, 28, 29)">是该领域的基石，分别利用集合和局部特征取得了极高精度。</span></p>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://ojs.aaai.org/index.php/AAAI/article/view/4821" rel="noopener noreferrer nofollow">Gaitset: Regarding gait as a set for cross-view gait recognition</a> - H. Chao et al., AAAI2019 (⚡<strong><em><span style="background-color: rgb(241, 152, 55)">GaitSet</span></em></strong> [<a href="https://github.com/AbnerHqC/GaitSet" rel="noopener noreferrer nofollow">Official Code</a>, <a href="https://github.com/ShiqiYu/OpenGait/" rel="noopener noreferrer nofollow">OpenGait</a>] )<span class="citation">(<a href="zotero://select/library/items/96XFGZSH">Chao 等, 2019</a>)</span></p>
+<ul>
+<li>
+<strong><span style="background-color: rgba(255, 212, 0, 0.5)">将步态视为跨视角步态识别的集合</span></strong>
+</li>
+<li>
+步态作为一种可远距离识别的独特生物特征，在预防犯罪、法医鉴定和社会安全方面有着广泛的应用。为了描绘步态，现有的步态识别方法要么使用<span style="background-color: rgba(95, 178, 54, 0.5)">步态模板</span>（很难保留时间信息），要么使用<span style="background-color: rgba(95, 178, 54, 0.5)">步态序列</span>（必须保留不必要的序列约束，从而失去步态识别的灵活性）。在本文中，我们提出了一个新的视角，即将步态视为<span style="background-color: rgba(229, 110, 238, 0.5)">由独立帧组成的集合</span>。我们提出了一种名为 GaitSet 的新网络，用于从集合中学习身份信息。<u>基于集合视角，我们的方法不受帧的排列影响</u>，可以自然地整合不同视频中不同场景下拍摄的帧，如不同的视角、不同的衣服/携带条件。实验表明，在正常行走条件下，我们的单一模型方法在 CASIA-B 步态数据集上的平均 rank-1 准确率为 95.0%，在 OU-MVLP 步态数据集上的平均 rank-1 准确率为 87.1%。这些结果代表了最新的识别准确率。在各种复杂场景中，我们的模型表现出了显著的鲁棒性。在背着包和穿着外套行走的情况下，它在 CASIA-B 上的准确率分别达到了 87.2% 和 70.4%。这大大超过了现有的最佳方法。该方法还能在测试样本帧数较少的情况下达到令人满意的准确度，例如，在 CASIA-B 中仅用 7 个帧就达到了 82.5%。
+</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li>
+<p><a href="http://openaccess.thecvf.com/content_CVPR_2020/html/Fan_GaitPart_Temporal_Part-Based_Model_for_Gait_Recognition_CVPR_2020_paper.html" rel="noopener noreferrer nofollow">Gaitpart: Temporal part-based model for gait recognition</a> - C. Fan et al. (⚡<strong><em><span style="background-color: rgb(241, 152, 55)">GaitPart</span></em></strong> <a href="https://github.com/ShiqiYu/OpenGait/" rel="noopener noreferrer nofollow">[OpenGait]</a>)<span class="citation">(<a href="zotero://select/library/items/2AKFTYPU">Fan 等, 2020</a>)</span></p>
+<ul>
+<li>
+步态识别用于识别个人远距离行走模式，是最有前途的基于视频的生物识别技术之一。目前，大多数步态识别方法都是以<span style="background-color: rgba(162, 138, 229, 0.5)">整个人体</span>为单位建立时空表征。然而，我们观察到，人体的不同部位在行走时具有明显不同的视觉外观和运动模式。在最新的文献中，<span style="background-color: rgba(229, 110, 238, 0.5)">采用局部特征来描述人体</span>已被证实有利于个体识别。综合上述观点，我们认为人体的每个部位都需要自己的时空表达。然后，我们提出了一个<span style="background-color: rgba(46, 168, 229, 0.5)">基于部分特征的新模型 GaitPart</span>，并取得了两方面的效果：一方面，我们提出了一种新的卷积应用--<span style="background-color: rgba(95, 178, 54, 0.5)">焦点卷积层（Focal Convolution Layer）</span>，以增强对部分级空间特征的精细学习。另一方面，提出了<span style="background-color: rgba(95, 178, 54, 0.5)">微运动捕捉模块（MCM）</span>，在 GaitPart 中有多个并行的 MCM，分别对应人体的预定义部位。值得一提的是，MCM 是一种新颖的步态任务时间建模方法，它侧重于短程时间特征，而不是周期步态的冗余长程特征。在 CASIA-B 和 OU-MVLP 这两个最流行的公共数据集上进行的实验充分证明，我们的方法在多个标准基准上达到了新的先进水平。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">鲁棒性痛点：</span></strong><span style="color: rgb(27, 28, 29)"> 它们高度</span><span style="background-color: rgb(255, 212, 0)">依赖准确的轮廓分割</span><span style="color: rgb(27, 28, 29)">。在开放场景中，</span><u><span style="color: rgb(27, 28, 29)">复杂的背景、动态的光照</span></u><span style="color: rgb(27, 28, 29)">会导致分割失败（轮廓残缺或噪点），且无法有效应对</span><u><span style="color: rgb(27, 28, 29)">“换衣”（Clothing Change）问题</span></u><span style="color: rgb(27, 28, 29)">，因为衣服直接改变了轮廓形状。</span>
+</li>
+</ul>
+<h3><span style="color: rgb(27, 28, 29)">2. 基于</span><strong><span style="background-color: rgb(255, 212, 0)">模型/骨骼 (Model-based / Skeleton)</span></strong><span style="color: rgb(27, 28, 29)">的局限</span></h3>
+<pre><strong>定义</strong>：利用人体关键点（关节）的坐标及其连接关系来表示步态。</pre>
+<pre><strong>运动学模态 (Model-based):
+ &nbsp;骨骼关键点 (Skeleton/Keypoints):</strong> 了解<strong>OpenPose</strong>或<strong>AlphaPose</strong>的输出格式（通常是17或25个关节点的坐标）。
+ &nbsp;<strong>骨骼图 (Skeleton Maps):</strong> 这是一个特有的技术点。学习如何将稀疏的骨骼坐标“渲染”成2D热图或伪图像，以便能用CNN处理。
+ &nbsp;<strong>SMPL 模型 (3D Mesh):</strong> 作为一个进阶点，理解SMPL如何将人体解耦为<strong>形状参数β和姿态参数θ</strong>。这在Gait3D数据集中尤为重要。</pre>
+<pre><strong>核心网络架构 (Backbone Architectures)</strong>
+ &nbsp;你需要掌握处理上述不同模态数据的神经网络结构。
+ &nbsp;<strong>CNN (卷积神经网络):</strong> 用于处理轮廓和骨骼图。<strong>重点模型:</strong> 必须通读并理解<strong>GaitSet</strong>（将步态视为集合，不依赖帧顺序）和<strong>GaitGL</strong>（全局与局部特征结合）。它们通常被用作多模态网络中的特征提取器（Backbone）。
+ &nbsp;<strong>GCN (图卷积网络):</strong> 用于直接处理骨骼坐标数据。<strong>重点模型:</strong> 了解<strong>GaitGraph</strong>是如何利用图结构提取人体运动特征的。
+ &nbsp;<strong>Transformer/Attention:</strong>了解自注意力机制（Self-Attention），它是后续理解“跨模态注意力”的基础。</pre>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">经典方法：</span></strong><span style="color: rgb(27, 28, 29)"> </span><strong><span style="color: rgb(27, 28, 29)">PoseGait</span></strong> <span style="color: rgb(27, 28, 29)">和 </span><strong><span style="color: rgb(27, 28, 29)">GaitGraph</span></strong><span style="color: rgb(27, 28, 29)"> 利用<span style="background-color: rgba(229, 110, 238, 0.5)">图卷积网络（GCN）</span>处理骨骼节点。</span></p>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://www.sciencedirect.com/science/article/pii/S003132031930370X" rel="noopener noreferrer nofollow">A model-based gait recognition method with body pose and human prior knowledge</a> - R. Liao et al. (⚡<strong><em><span style="background-color: rgb(241, 152, 55)">PoseGait</span></em></strong><span style="background-color: rgb(241, 152, 55)"> </span><a href="https://github.com/RijunLiao/PoseGait" rel="noopener noreferrer nofollow">[code]</a>)<span class="citation">(<a href="zotero://select/library/items/GXCXJLJF">Liao 等, 2020</a>)</span></p>
+<ul>
+<li>
+我们在本文中提出了一种新颖的基于模型的步态识别方法 PoseGait。步态识别是生物统计学中一项具有挑战性和吸引力的任务。早期的步态识别方法主要基于外观。基于外观的特征通常是<u>从人体轮廓中提取的</u>，这种特征易于计算，而且在识别任务中表现出很高的效率。然而，轮廓形状并不随<span style="background-color: rgba(229, 110, 238, 0.5)">服装的变化</span>而变化，而且会因<span style="background-color: rgba(229, 110, 238, 0.5)">光照变化或其他外部因素</span>而发生剧烈变化。除了基于轮廓的特征之外，还有一种基于模型的特征。然而，获取这些特征非常具有挑战性，尤其是在图像分辨率较低的情况下。与之前的方法不同，我们的模型 PoseGait 利用卷积神经网络<span style="background-color: rgba(255, 212, 0, 0.5)">从图像中估算出的人体三维姿势</span>作为步态识别的输入特征。三维姿势由人体关节的三维坐标定义，不受视角变化和其他外部变化因素的影响。我们根据三维姿势<u>设计时空特征</u>，以提高识别率。我们的方法在 CASIA B 和 CASIA E 两个大型数据集上进行了评估。实验结果表明，所提出的方法可以达到最先进的性能，并且对视图和服装变化具有鲁棒性。
+</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li>
+<p><a href="https://ieeexplore.ieee.org/abstract/document/9506717/" rel="noopener noreferrer nofollow">Gaitgraph: Graph convolutional network for skeleton-based gait recognition</a> - T. Teepe et al. (⚡<strong><em><span style="background-color: rgb(241, 152, 55)">GaitGraph</span></em></strong> <a href="https://github.com/tteepe/GaitGraph" rel="noopener noreferrer nofollow">[code]</a>)<span class="citation">(<a href="zotero://select/library/items/GAIALW2U">Teepe 等, 2021</a>)</span></p>
+<ul>
+<li>
+步态识别是一种很有前途的基于视频的生物识别技术，可用于远距离识别个人行走模式。目前，大多数步态识别方法都<u>使用剪影图像来表示每个帧中的人</u>。然而，剪影图像会丢失<span style="background-color: rgba(162, 138, 229, 0.5)">细粒度的空间信息</span>，而且大多数论文都没有考虑如何在复杂场景中获取这些剪影。此外，剪影图像不仅包含步态特征，还包含其他可识别的视觉线索。因此，这些方法不能被视为严格意义上的步态识别。我们利用最近在人体姿态估计方面取得的进展，<span style="background-color: rgb(255, 212, 0)">直接</span>从 <span style="background-color: rgba(95, 178, 54, 0.5)">RGB 图像</span>中估计出稳健的<span style="background-color: rgba(95, 178, 54, 0.5)">骨架姿态</span>，从而以更清晰的步态表示，重新进行基于模型的步态识别。因此，我们提出了 GaitGraph，它将骨架姿势与图卷积网络（GCN）相结合，从而获得一种基于模型的现代步态识别方法。它的主要优点是能更简洁、优雅地提取步态特征，并能利用 GCN 结合强大的<span style="background-color: rgba(255, 212, 0, 0.5)">时空建模</span>功能。在流行的 CASIA-B 步态数据集上进行的实验表明，我们的方法在基于模型的步态识别方面具有最先进的性能。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">鲁棒性痛点：</span></strong><span style="color: rgb(27, 28, 29)"> 虽然骨骼对“换衣”鲁棒（只要能检测到关节），但在</span><u>远距离或低分辨率</u><span style="color: rgb(27, 28, 29)">下，姿态估计容易出错（抖动）。且骨骼丢失了</span><u><span style="color: rgb(27, 28, 29)">体型（Shape）信息</span></u><span style="color: rgb(27, 28, 29)">，辨识度低于轮廓。</span>
+</li>
+</ul>
+<hr>
+<h2><span style="color: rgb(27, 28, 29)">第三部分：多模态鲁棒性增强策略（核心研究方向）</span></h2>
+<pre><strong>静态融合 (Static Fusion):
+ &nbsp;Add Fusion (逐元素相加):</strong> 最简单的融合。
+ &nbsp;<strong>Concat Fusion (通道拼接):</strong> 拼接特征图后接1×1卷积。这是实验中最需要对比的“基线”方法。
+
+<strong>动态融合 / 注意力融合 (Dynamic/Attention Fusion):
+ &nbsp;跨模态注意力 (Cross-Modal Attention, CMA):</strong> 学习Query, Key, Value的概念，理解如何让一个模态（如骨骼）去“指导”另一个模态（如轮廓）的特征提取。
+ &nbsp;<strong>卷积注意力 (Conv-Attention):</strong> 学习<strong>SkeletonGait++</strong>中的融合模块，使用小型CNN生成空间/通道注意力Mask。
+ &nbsp;<strong>解耦融合 (Disentangled Fusion):</strong> 学习<strong>MultiGait++</strong>中的<strong>C2Fusion</strong>策略，如何分离“共享特征”和“独特特征”。
+
+<strong>遮挡感知 (Occlusion Awareness):</strong> 学习如何设计机制，让网络在感知到遮挡时，自动降低受损模态的权重。</pre>
+<p><span style="color: rgb(27, 28, 29)">结合文件中的最新论文，以下是针对开放场景鲁棒性的三大增强策略：</span></p>
+<h3><span style="color: rgb(27, 28, 29)">策略一：<span style="background-color: rgb(255, 212, 0)">结构与外观</span>的互补融合<span style="background-color: rgb(255, 212, 0)"> (Skeleton + Silhouette Fusion)</span></span></h3>
+<p><span style="color: rgb(27, 28, 29)">这是目前最直接有效的增强策略。</span></p>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">核心论文：</span></strong><span style="color: rgb(27, 28, 29)"> </span><strong><span style="color: rgb(27, 28, 29)">SkeletonGait</span></strong><span style="color: rgb(27, 28, 29)"> (AAAI 2024)。</span></p>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://arxiv.org/abs/2311.13444" rel="noopener noreferrer nofollow">SkeletonGait: Gait Recognition Using Skeleton Maps</a> - C. Fan et al. (⚡<strong><em><span style="background-color: rgb(255, 102, 102)">SkeletonGait</span></em></strong> <a href="https://github.com/ShiqiYu/OpenGait" rel="noopener noreferrer nofollow">[code]</a>)<span class="citation">(<a href="zotero://select/library/items/ZXX3XP4Z">Fan 等</a>)</span></p>
+<ul>
+<li>
+对于深度步态识别方法来说，表征的选择至关重要。<span style="background-color: rgba(229, 110, 238, 0.5)">二进制轮廓和骨骼坐标</span>是近期文献中的两种主流表示方法，在许多场景中都取得了显著进步。然而，内在的挑战依然存在，在无约束场景中，剪影并不总能得到保证，而骨骼的结构线索也没有得到充分利用。在本文中，我们介绍了一种名为 "骨骼图 <span style="color: rgb(27, 28, 29)">Skeleton Maps</span>"的新型骨骼步态表示法，以及一种<span style="background-color: rgba(46, 168, 229, 0.5)">基于骨骼的方法</span> SkeletonGait，该方法可利用人体骨骼图中的结构信息。具体来说，<u>骨骼图将人体关节的坐标表示为高斯近似的热图</u>，呈现出一种没有确切身体结构的剪影式图像。除了在五个流行的步态数据集上取得最先进的性能外，更重要的是，SkeletonGait 揭示了<span style="background-color: rgba(162, 138, 229, 0.5)">结构特征</span>在描述步态中的重要性以及何时发挥作用的新见解。此外，我们还提出了一种名为 SkeletonGait++ 的多分支架构，以利用<span style="background-color: rgba(95, 178, 54, 0.5)">骨骼和轮廓的互补特征</span>。实验表明，SkeletonGait++ 在各种情况下都大大优于现有的先进方法。例如，在具有挑战性的 GREW 数据集上，它的排名-1 准确率超过 85%，令人印象深刻。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+</li>
+</ul>
+<pre><strong>骨骼图 (Skeleton Maps):
+ &nbsp;定义</strong>：一种为了增强骨骼表现力而提出的概念。它不直接使用坐标数值，而是将骨骼坐标转化为热图（Heatmap）。
+ &nbsp;<strong>作用</strong>：使其能像图像一样被卷积神经网络（CNN）处理，包含了一定的结构信息。</pre>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">策略解析：</span></strong></p>
+<ul>
+<li>
+<span style="color: rgb(27, 28, 29)">该文提出了“Skeleton Maps”（骨骼图）的概念，将骨骼坐标转化为热图（Heatmap），使其能像图像一样被CNN处理。</span>
+</li>
+<li>
+<span style="color: rgb(27, 28, 29)">更重要的是提出了 </span><strong><span style="color: rgb(27, 28, 29)">SkeletonGait++</span></strong><span style="color: rgb(27, 28, 29)">，这是一个多分支架构，旨在利用骨骼和轮廓的互补特征。</span>
+</li>
+</ul>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">鲁棒性逻辑：</span></strong><span style="color: rgb(27, 28, 29)"> 当衣服厚重遮挡身体曲线时，依赖骨骼的运动信息；当距离太远骨骼检测不准时，依赖轮廓的整体形状。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">进阶思路：</span></strong><span style="color: rgb(27, 28, 29)"> 可以参考 </span><strong><span style="color: rgb(27, 28, 29)">MSAFF </span></strong><span style="color: rgb(27, 28, 29)">，它提出了一种多阶段自适应特征融合网络，考虑了轮廓与骨骼之间的<span style="background-color: rgb(255, 212, 0)">语义关联</span>，实现更深度的融合。</span>
+</li>
+</ul>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://arxiv.org/abs/2312.14410" rel="noopener noreferrer nofollow">A Multi-Stage Adaptive Feature Fusion Neural Network for Multimodal Gait Recognition</a> - S. Zou et.al. (⚡<strong><em><span style="background-color: rgb(255, 212, 0)">MSAFF</span></em></strong> <a href="https://github.com/ShinanZou/MSAFF" rel="noopener noreferrer nofollow">[code]</a>)<span class="citation">(<a href="zotero://select/library/items/4AMZP4FS">Zou 等, 2023</a>)</span></p>
+<ul>
+<li>
+步态识别是一项受到广泛关注的生物识别技术。现有的步态识别算法大多是单模态的，少数多模态步态识别算法<span style="background-color: rgba(229, 110, 238, 0.5)">只进行一次多模态融合</span>。这些算法都无法充分利用多模态的互补优势。本文通过考虑<span style="background-color: rgba(46, 168, 229, 0.5)">步态数据的时间和空间特征</span>，提出了一种<u><span style="background-color: rgba(162, 138, 229, 0.5)">多阶段特征融合策略</span>（MSFFS）</u>，在特征提取过程的不同阶段执行多模态融合。此外，我们还提出了一种<u><span style="background-color: rgba(46, 168, 229, 0.5)">自适应</span>特征融合模块（AFFM）</u>，该模块考虑了<span style="background-color: rgb(241, 152, 55)">剪影与骨骼之间的语义关联</span>。融合过程将不同的剪影区域与其更相关的骨架关节融合在一起。由于视觉外观变化和时间流逝同时出现在步态期间，我们提出了<u>多尺度时空特征提取器（MSSTFE）</u>来全面学习时空联系特征。具体来说，MSSTFE <span style="background-color: rgba(162, 138, 229, 0.5)">提取并聚合不同空间尺度的时空联系信息</span>。结合上述策略和模块，我们提出了一种<u>多级自适应特征融合（MSAFF）</u>神经网络，该网络在三个数据集的多次实验中表现出了一流的性能。此外，MSAFF 还配备了<u>特征维度池化（FD Pooling）</u>功能，可以在不影响准确性的前提下显著降低步态表征的维度。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+<h3><span style="color: rgb(27, 28, 29)">策略二：<span style="background-color: rgb(255, 102, 102)">细粒度语义解耦 </span>(Parsing-based Strategy)</span></h3>
+<p><span style="color: rgb(27, 28, 29)">针对“携带物”（背包）和“衣物”对轮廓的干扰，引入<span style="background-color: rgb(255, 212, 0)">人体解析（Parsing）</span>作为一种更精细的模态。</span></p>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">核心论文：</span></strong><span style="color: rgb(27, 28, 29)"> </span><strong><span style="color: rgb(27, 28, 29)">ParsingGait</span></strong><span style="color: rgb(27, 28, 29)"> (MM 2023) 和 </span><strong><span style="color: rgb(27, 28, 29)">LandmarkGait</span></strong><span style="color: rgb(27, 28, 29)"> (MM 2023)。</span></p>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://dl.acm.org/doi/abs/10.1145/3581783.3611840" rel="noopener noreferrer nofollow">LandmarkGait: Intrinsic Human Parsing for Gait Recognition</a> - Z. Wang et al. (⚡<strong><em><span style="background-color: rgb(255, 102, 102)">LandmarkGait</span></em></strong> <a href="https://github.com/wzb-bupt/LandmarkGait" rel="noopener noreferrer nofollow">[code]</a>)<span class="citation">(<a href="zotero://select/library/items/JGD7U8Z6">Wang 等, 2023</a>)</span></p>
+<ul>
+<li>
+步态识别是一种新兴的生物识别技术，可根据行人独特的行走模式对其进行识别。在过去的步态识别中，<u>基于全局的方法</u>不足以满足日益增长的准确性需求，而常用的<u>基于部位的方法</u>则对特定身体部位提供粗糙和不准确的特征表示。人体解析似乎是在步态识别中准确表示具体和完整身体部位的更好选择。然而，其在步态识别中的实际应用往往受到 RGB 模式缺失、缺乏身体部位注释以及解析数量和质量难以平衡等问题的阻碍。为了解决这个问题，我们提出了 LandmarkGait，一种基于解析的步态识别解决方案。LandmarkGait 引入了<span style="background-color: rgba(95, 178, 54, 0.5)">无监督地标发现网络</span>，<span style="background-color: rgba(162, 138, 229, 0.5)">将密集的轮廓转化为有限的地标集</span>，在各种条件下都具有显著的一致性。通过将与不同身体部位区域相对应的地标子集<u>分组</u>，并根据<u>重构任务和高质量输入剪影</u>的进一步细化，我们可以<span style="background-color: rgba(229, 110, 238, 0.5)">在无监督的情况下直接从原始二进制剪影中获得细粒度解析结果</span>。此外，我们还开发了一种<u>多尺度特征提取器</u>，可根据特定身体部位的完整性和灵活性同时捕捉全局和解析特征表征。广泛的实验证明，我们的 LandmarkGait 可以在各种条件下提取出更稳定的特征，并在所有条件下表现出显著的技能提升，尤其是在多种着装条件下的表现。
+</li>
+</ul>
+</li>
+<li>
+<p><a href="https://dl.acm.org/doi/10.1145/3581783.3612052" rel="noopener noreferrer nofollow">Parsing is All You Need for Accurate Gait Recognition in the Wild</a> - J. Zheng et al. (⚡<strong><em><span style="background-color: rgb(255, 102, 102)">ParsingGait</span></em></strong> <a href="https://github.com/ShiqiYu/OpenGait" rel="noopener noreferrer nofollow">[code]</a>) ✨ <strong>Oral Paper</strong> ✨<span class="citation">(<a href="zotero://select/library/items/E2J5KX9I">Zheng 等, 2023</a>)</span></p>
+<ul>
+<li>
+几十年来，二进制轮廓和基于关键点的骨架一直主导着人类步态识别研究，因为它们很容易从视频帧中提取。尽管它们在实验室环境下的步态识别中取得了成功，但由于步态表征的信息熵较低，它们在现实世界中通常会失败。为了在野外实现准确的步态识别，本文提出了一种名为<span style="background-color: rgba(162, 138, 229, 0.5)">步态解析序列（GPS）</span>的新型步态表示法。GPS是<u>从视频帧中提取的细粒度人体分割序列</u>，即人体解析序列，因此具有更高的信息熵，可以编码行走过程中细粒度人体部位的形状和动态。此外，为了有效探索 GPS 表示法的能力，我们提出了一种新颖的基于人体解析的步态识别框架，命名为 ParsingGait。ParsingGait 包含<u>一个基于卷积神经网络（CNN）的骨干网和两个轻量级头</u>。第一个头从GPS中<span style="background-color: rgba(229, 110, 238, 0.5)">提取全局语义特征</span>，而另一个头则通过图卷积网络学习<span style="background-color: rgba(229, 110, 238, 0.5)">部分级特征的互信息</span>，以模拟人类行走的详细动态。此外，由于缺乏合适的数据集，我们通过扩展大规模且具有挑战性的 Gait3D 数据集，建立了第一个基于解析的野外步态识别数据集，命名为 <span style="background-color: rgba(46, 168, 229, 0.5)">Gait3D-Parsing</span>。基于 Gait3D-Parsing，我们全面评估了我们的方法和现有的步态识别方法。具体来说，与最先进的基于剪影的方法相比，ParsingGait 的 Rank-1 提高了 17.5%。此外，通过用 GPS 取代剪影，目前的步态识别方法的 Rank-1 准确率提高了约 12.5% ∼ 19.2%。实验结果表明，GPS 表示法显著提高了准确率，并且 ParsingGait 更具优势。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+</li>
+</ul>
+<pre><strong>步态解析序列 (Gait Parsing Sequence, GPS):
+ &nbsp;定义</strong>：一种基于人体解析（Human Parsing）的表征。相比于只有黑白的轮廓，Parsing图包含了语义信息（例如：区分哪部分是手臂、腿、背包、大衣）。
+ &nbsp;<strong>作用</strong>：允许算法进行“细粒度语义解耦”，例如选择性地忽略背包或大衣的干扰，专注于人体肢体的运动。</pre>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">策略解析：</span></strong></p>
+<ul>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">ParsingGait</span></strong><span style="color: rgb(27, 28, 29)"> 认为“Parsing is All You Need”，提出了步态解析序列（GPS）。相比二值轮廓，Parsing图包含语义信息（这是手臂，那是腿，这是背包）。</span>
+</li>
+<li>
+<span style="color: rgb(27, 28, 29)">通过将背包或大衣与人体肢体分离，网络可以学习到更本质的运动模式。</span>
+</li>
+</ul>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">鲁棒性逻辑：</span></strong><span style="color: rgb(27, 28, 29)"> 在开放场景中，人经常背着包或手持物体。Parsing模态允许算法“选择性忽视”非身体区域，从而增强鲁棒性。</span>
+</li>
+</ul>
+<h3><span style="color: rgb(27, 28, 29)">策略三：升维打击——引入<span style="background-color: rgb(255, 212, 0)">3D与激光雷达</span> (3D &amp; LiDAR)</span></h3>
+<p><span style="color: rgb(27, 28, 29)">针对光照变化和视角极端变化（如俯视），2D信息几乎失效，必须引入3D信息。</span></p>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">核心论文：</span></strong></p>
+<ul>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">Gait3D</span></strong><span style="color: rgb(27, 28, 29)">：利用SMPL模型提取3D形状和动态信息，解决跨视角问题。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">LidarGait</span></strong><span style="color: rgb(27, 28, 29)">：利用点云（Point Clouds）代替图像。</span>
+</li>
+</ul>
+</li>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">策略解析：</span></strong></p>
+<ul>
+<li>
+<span style="color: rgb(27, 28, 29)">激光雷达对光照不敏感（解决夜间/阴影问题），且能提供精确的深度信息。LidarGait证明了3D结构信息是步态识别的重要特征，且在跨视角任务上非常稳定。</span>
+</li>
+</ul>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">鲁棒性逻辑：</span></strong><span style="color: rgb(27, 28, 29)"> 通过物理传感器的改变（LiDAR）或算法恢复（SMPL），彻底消除视觉RGB图像中常见的“视觉欺骗”（如迷彩服、阴影、视角畸变）。</span>
+</li>
+</ul>
+<h3><span style="color: rgb(27, 28, 29)">策略四：<span style="background-color: rgb(255, 102, 102)">遮挡感知 (Occlusion Awareness)</span></span></h3>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">核心论文：</span></strong><span style="color: rgb(27, 28, 29)"> </span><strong><span style="color: rgb(27, 28, 29)">You Can Run but not Hide</span></strong><span style="color: rgb(27, 28, 29)"> (WACV 2024)。</span></p>
+<blockquote>
+<ul>
+<li>
+<p><a href="https://arxiv.org/abs/2312.02290" rel="noopener noreferrer nofollow">You Can Run but not Hide: Improving Gait Recognition with Intrinsic Occlusion Type Awareness</a> - A. Gupta et al. ✨ <strong>Oral Paper</strong> ✨<span class="citation">(<a href="zotero://select/library/items/G8NTE4XA">Gupta 和 Chellappa, 2023</a>)</span></p>
+<ul>
+<li>
+近年来，步态识别技术取得了许多进展，但<span style="background-color: rgba(255, 212, 0, 0.5)">遮挡问题</span>却在很大程度上被忽视了。这个问题对于在一定范围内从不受控制的室外序列中进行步态识别尤为重要，因为任何微小的障碍物都会影响识别系统。目前的大多数方法在提取步态特征时都假定有完整的身体信息。当身体的某些部分被遮挡时，这些方法可能会产生幻觉，输出损坏的步态特征，因为它们试图寻找输入中根本不存在的身体部分。为了解决这个问题，我们在从视频中提取身份特征时利用了所学到的遮挡类型。因此，在这项工作中，我们提出了一种<u>闭塞感知步态识别方法</u>，该方法可用于在任何最先进的步态识别方法中建立内在闭塞感知模型。我们在具有挑战性的 GREW 和 BRIAR 数据集上进行的实验表明，具有这种遮挡意识的网络在识别任务中的表现要优于在类似遮挡情况下训练的网络。
+</li>
+</ul>
+</li>
+</ul>
+</blockquote>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">策略解析：</span></strong><span style="color: rgb(27, 28, 29)"> 提出了一种“遮挡感知”的步态识别方法。大多数方法假设输入是完整的身体，而该研究利用学习到的遮挡类型，避免网络在身体被遮挡时产生“幻觉”（Hallucination）特征。</span>
+</li>
+</ul>
+<hr>
+<h2><span style="color: rgb(27, 28, 29)">第四部分：实验与落地的关键工具</span></h2>
+<p><span style="color: rgb(27, 28, 29)">为了验证上述策略，不需要从零开始写代码。</span></p>
+<ul>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">OpenGait 框架：</span></strong></p>
+<ul>
+<li>
+<span style="color: rgb(27, 28, 29)">文件中多次提到 </span><strong><span style="color: rgb(27, 28, 29)">OpenGait</span></strong><span style="color: rgb(27, 28, 29)">。</span>
+</li>
+<li>
+<span style="color: rgb(27, 28, 29)">这是一个灵活且高效的步态识别代码库，内置了 </span><strong><span style="color: rgb(27, 28, 29)">GaitSet</span></strong><span style="color: rgb(27, 28, 29)">, </span><strong><span style="color: rgb(27, 28, 29)">GaitPart</span></strong><span style="color: rgb(27, 28, 29)">, </span><strong><span style="color: rgb(27, 28, 29)">GaitGL</span></strong><span style="color: rgb(27, 28, 29)"> 等基线模型。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">重要性：</span></strong><span style="color: rgb(27, 28, 29)"> 它是进行多模态算法对比、复现 SOTA（State-of-the-Art）结果的基础平台。</span>
+</li>
+</ul>
+<pre><strong>OpenGait 框架:</strong>必须精通的工具。
+ &nbsp;<strong>学习内容:
+ &nbsp; &nbsp;</strong>如何配置config.yaml文件来加载 <strong>GREW</strong> 或 <strong>Gait3D</strong> 数据集。
+ &nbsp; &nbsp;阅读源码中的 modeling/models/ 目录，看懂 GaitSet, GaitBase 是如何实现的。
+ &nbsp; &nbsp;学习如何在 OpenGait 中添加一个新的融合模块（做实验的具体步骤）。
+<strong>数据集结构:
+ &nbsp; &nbsp;</strong>熟悉<strong>GREW</strong>和<strong>Gait3D</strong>的文件目录结构。它们包含大量干扰项（Distractors）和非受控环境下的视频，数据清洗和加载比实验室数据集（CASIA-B）复杂得多。</pre>
+</li>
+</ul>
+<h2><span style="color: rgb(27, 28, 29)">总结：研究建议</span></h2>
+<p><span style="color: rgb(27, 28, 29)">建议按照以下脉络组织论文/研究：</span></p>
+<ol>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">立论</span></strong><span style="color: rgb(27, 28, 29)">：引用 </span><strong><span style="color: rgb(27, 28, 29)">GREW</span></strong><span style="color: rgb(27, 28, 29)"> 和 </span><strong><span style="color: rgb(27, 28, 29)">Gait3D</span></strong><span style="color: rgb(27, 28, 29)"> 说明开放场景的挑战（复杂遮挡、换衣、视角）。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">基线对比</span></strong><span style="color: rgb(27, 28, 29)">：先分析单模态的失败案例（引用 </span><strong><span style="color: rgb(27, 28, 29)">GaitSet</span></strong><span style="color: rgb(27, 28, 29)"> 在复杂背景下的不足）。</span>
+</li>
+<li>
+<p><strong><span style="color: rgb(27, 28, 29)">策略提出</span></strong><span style="color: rgb(27, 28, 29)">：</span></p>
+<ul>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">融合策略</span></strong><span style="color: rgb(27, 28, 29)">：参考 </span><strong><span style="color: rgb(27, 28, 29)">SkeletonGait++</span></strong><span style="color: rgb(27, 28, 29)">，设计一个双流（Two-stream）网络，一路走轮廓（提取形状），一路走骨骼（提取运动）。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">语义增强</span></strong><span style="color: rgb(27, 28, 29)">：参考 </span><strong><span style="color: rgb(27, 28, 29)">ParsingGait</span></strong><span style="color: rgb(27, 28, 29)">，在网络中加入Parsing分支，用于过滤背包或大衣的干扰。</span>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">遮挡处理</span></strong><span style="color: rgb(27, 28, 29)">：参考加入遮挡感知模块，动态调整不同模态的权重（例如：腿被遮挡时，自动降低骨骼流腿部节点的权重，增加轮廓流上半身的权重）。</span>
+</li>
+</ul>
+</li>
+<li>
+<strong><span style="color: rgb(27, 28, 29)">实验验证</span></strong><span style="color: rgb(27, 28, 29)">：使用 </span><strong><span style="color: rgb(27, 28, 29)">OpenGait</span></strong><span style="color: rgb(27, 28, 29)"> 框架，在 </span><strong><span style="color: rgb(27, 28, 29)">GREW</span></strong><span style="color: rgb(27, 28, 29)"> 或 </span><strong><span style="color: rgb(27, 28, 29)">Gait3D</span></strong><span style="color: rgb(27, 28, 29)"> 数据集上进行验证。</span>
+</li>
+</ol>
+<pre>总结：学习路线图
+ &nbsp;1.<strong>入门:</strong> 阅读 <strong>GaitSet</strong> 和 <strong>GaitPart</strong> 的论文，弄懂步态识别的基本流程。
+ &nbsp;2.<strong>上手:</strong> 下载并配置 <strong>OpenGait</strong>，跑通一个基线模型（如 GaitSet 在 CASIA-B 上）。
+ &nbsp;3.<strong>进阶:</strong> 阅读 <strong>SkeletonGait++</strong> 和 <strong>MultiGait++</strong>，重点看它们的“Fusion Module”部分是如何设计的。
+ &nbsp;4.<strong>实战:</strong> 在 OpenGait 中，尝试修改代码，将“轮廓分支”和“骨骼分支”通过 Concat 连接起来，跑通多模态训练。
+ &nbsp;5.<strong>创新:</strong> 设计自己的注意力模块（参考 CMA 或 C2Fusion），替换掉简单的 Concat，在 <strong>GREW</strong> 或 <strong>Gait3D</strong> 上进行对比实验。</pre>
+<hr>
+<h2><strong><span style="color: rgb(31, 31, 31)"><span style="background-color: rgba(229, 110, 238, 0.5)">学习路线</span></span></strong></h2>
+<p><span style="color: rgb(31, 31, 31)">这一阶段的目标是：</span><strong><span style="color: rgb(31, 31, 31)">夯实理论基础，跑通基准框架</span></strong><span style="color: rgb(31, 31, 31)">。在开始设计复杂的融合策略之前，必须先理解“什么是步态数据”以及“如何使用标准工具进行实验”。</span></p>
+<hr>
+<h3><strong><span style="color: rgb(31, 31, 31)">理论筑基与 OpenGait 框架上手</span></strong></h3>
+<h4><strong><span style="color: rgb(31, 31, 31)">1. 理论学习：理解核心概念与“开放场景”挑战</span></strong></h4>
+<p><span style="color: rgb(31, 31, 31)">需要阅读 3-4 篇奠基性的论文，建立对本课题的认知框架。</span></p>
+<ul>
+<li>
+<p><strong><span style="color: rgb(31, 31, 31)">必读论文 1 (基石): GaitSet</span></strong><span style="color: rgb(31, 31, 31)"> (AAAI 2019)</span></p>
+<ul>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">学习重点:</span></strong><span style="color: rgb(31, 31, 31)"> 理解将步态视频视为“集合”(Set) 而非“序列”的概念。这是目前 OpenGait 中大多数模型的基础数据处理方式。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">关键点:</span></strong><span style="color: rgb(31, 31, 31)"> 它可以整合不同视角的帧，不依赖帧顺序，这为后续处理复杂的开放场景打下基础。</span>
+</li>
+</ul>
+</li>
+<li>
+<p><strong><span style="color: rgb(31, 31, 31)">必读论文 2 (数据): GREW</span></strong><span style="color: rgb(31, 31, 31)"> (ICCV 2021) 或 </span><strong><span style="color: rgb(31, 31, 31)">Gait3D</span></strong><span style="color: rgb(31, 31, 31)"> (CVPR 2022)</span></p>
+<ul>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">学习重点:</span></strong><span style="color: rgb(31, 31, 31)"> 理解“开放场景”(Open Scenarios/In-the-Wild) 到底意味着什么。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">关键点:</span></strong><span style="color: rgb(31, 31, 31)"> 关注文中对 </span><strong><span style="color: rgb(31, 31, 31)">协变量 (Covariates)</span></strong><span style="color: rgb(31, 31, 31)"> 的定义（换衣、遮挡、干扰项）。理解为何传统的 CASIA-B 数据集不足以验证鲁棒性。</span>
+</li>
+</ul>
+</li>
+<li>
+<p><strong><span style="color: rgb(31, 31, 31)">必读论文 3 (模态): SkeletonGait</span></strong><span style="color: rgb(31, 31, 31)"> (AAAI 2024)</span></p>
+<ul>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">学习重点:</span></strong><span style="color: rgb(31, 31, 31)"> 理解 </span><strong><span style="color: rgb(31, 31, 31)">“骨骼图” (Skeleton &nbsp;Maps)</span></strong><span style="color: rgb(31, 31, 31)"> 的概念。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">关键点:</span></strong><span style="color: rgb(31, 31, 31)"> 学习如何将稀疏的骨骼关键点坐标（17/25个点）转化为可以被 CNN 处理的热图（Heatmap）。这是后续进行多模态融合（特别是与轮廓融合）的关键前置技术。</span>
+</li>
+</ul>
+</li>
+</ul>
+<h4><strong><span style="color: rgb(31, 31, 31)">2. 工具实践：部署与掌握 OpenGait</span></strong></h4>
+<p><span style="color: rgb(31, 31, 31)">根据课题规划，</span><strong><span style="color: rgb(31, 31, 31)">OpenGait</span></strong><span style="color: rgb(31, 31, 31)"> 是进行算法选型和公平比较的唯一指定平台。</span></p>
+<ul>
+<li>
+<p><strong><span style="color: rgb(31, 31, 31)">任务 2.1: 环境配置</span></strong></p>
+<ul>
+<li>
+<span style="color: rgb(31, 31, 31)">下载 OpenGait 源码。</span>
+</li>
+<li>
+<span style="color: rgb(31, 31, 31)">配置 Python 环境（PyTorch, CUDA 等）。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">目标:</span></strong><span style="color: rgb(31, 31, 31)"> 确保 </span><code>import opengait</code> 无报错，能够运行自带的测试脚本。
+</li>
+</ul>
+</li>
+<li>
+<p><strong><span style="color: rgb(31, 31, 31)">任务 2.2: 数据准备 (初阶)</span></strong></p>
+<ul>
+<li>
+<span style="color: rgb(31, 31, 31)">虽然您的课题最终要用 GREW/Gait3D，但建议先下载较小的 </span><strong><span style="color: rgb(31, 31, 31)">CASIA-B</span></strong><span style="color: rgb(31, 31, 31)"> 数据集练手。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">目标:</span></strong><span style="color: rgb(31, 31, 31)"> 熟悉 OpenGait 的数据预处理流程。观察处理后的数据长什么样（二值化的轮廓图）。</span>
+</li>
+</ul>
+</li>
+<li>
+<p><strong><span style="color: rgb(31, 31, 31)">任务 2.3: 跑通基线 (Baseline)</span></strong></p>
+<ul>
+<li>
+<span style="color: rgb(31, 31, 31)">使用 OpenGait 训练一个标准的 </span><strong><span style="color: rgb(31, 31, 31)">GaitSet</span></strong><span style="color: rgb(31, 31, 31)"> 或 </span><strong><span style="color: rgb(31, 31, 31)">GaitGL</span></strong><span style="color: rgb(31, 31, 31)"> 模型。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">目标:</span></strong><span style="color: rgb(31, 31, 31)"> 获得一个 </span><code>Rank-1</code> 准确率结果。弄懂配置文件 (<code>config.yaml</code>) 中各项参数的含义（如 <code>batch_size</code>, <code>lr</code>, <code>restore_iter</code> 等）。
+</li>
+</ul>
+</li>
+</ul>
+<h4><strong><span style="color: rgb(31, 31, 31)">3. 模态认知：可视化“异构信息”</span></strong></h4>
+<p><span style="color: rgb(31, 31, 31)">为了进行多模态融合，您需要直观地看到数据的差异。</span></p>
+<ul>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">外观模态:</span></strong><span style="color: rgb(31, 31, 31)"> 随机抽取一张预处理后的</span><strong><span style="color: rgb(31, 31, 31)">轮廓图 (Silhouette)</span></strong><span style="color: rgb(31, 31, 31)">。观察在有背包或穿大衣时，轮廓发生了什么变形。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">运动学模态:</span></strong><span style="color: rgb(31, 31, 31)"> 如果可能，下载 Gait3D 的样例数据，观察 </span><strong><span style="color: rgb(31, 31, 31)">SMPL 模型</span></strong><span style="color: rgb(31, 31, 31)">或 </span><strong><span style="color: rgb(31, 31, 31)">3D 骨骼</span></strong><span style="color: rgb(31, 31, 31)">数据。理解它们是如何剥离衣物干扰，仅保留骨架结构的。</span>
+</li>
+</ul>
+<hr>
+<h3><strong><span style="color: rgb(31, 31, 31)">本阶段预期产出</span></strong></h3>
+<ol>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">代码环境:</span></strong><span style="color: rgb(31, 31, 31)"> 一套可运行的 OpenGait 代码库。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">基准数据:</span></strong><span style="color: rgb(31, 31, 31)"> 在 CASIA-B 或小规模数据集上，成功复现了 GaitSet 的性能（例如 Rank-1 达到 95% 左右）。</span>
+</li>
+<li>
+<strong><span style="color: rgb(31, 31, 31)">概念图谱:</span></strong><span style="color: rgb(31, 31, 31)"> 能够清晰解释“轮廓”和“骨骼”各自的优缺点（轮廓信息丰富但易受干扰，骨骼鲁棒但分辨率要求高）。</span>
+</li>
+</ol>
+<pre>Step 2:
+一旦跑通了单模态的 OpenGait，下一步将是复现多模态基线。将尝试在 OpenGait 中加载双流数据（轮廓+骨骼），并实现最简单的 Concat Fusion，为后续对比高级的“注意力策略”做准备。</pre>
+<hr>
+</div></div></body></html>
