@@ -14,11 +14,16 @@
             background-color: #f9f9f9;
             color: #333;
         }
-        h1 {
+        /* 统一 H1 和 H2 的样式 */
+        h1, h2 {
             text-align: center;
             color: #2c3e50;
             border-bottom: 2px solid #eaeaea;
             padding-bottom: 10px;
+        }
+        h2 {
+            margin-top: 40px; /* 让论文列表和上方拉开一点距离 */
+            font-size: 1.5em;
         }
         .directory-list {
             list-style: none;
@@ -43,6 +48,7 @@
             color: #2980b9;
             font-weight: 500;
             font-size: 1.1em;
+            word-wrap: break-word; /* 防止长文件名撑破布局 */
         }
         .directory-list a:hover {
             color: #3498db;
@@ -51,6 +57,18 @@
             font-size: 0.85em;
             color: #7f8c8d;
             float: right;
+            font-weight: normal;
+            margin-left: 10px;
+        }
+        /* 针对论文列表的小标签样式 */
+        .type-tag {
+            font-size: 0.75em;
+            background-color: #eee;
+            color: #555;
+            padding: 2px 6px;
+            border-radius: 4px;
+            float: right;
+            margin-left: 10px;
             font-weight: normal;
         }
     </style>
@@ -71,6 +89,45 @@
             <a href="GaitSet.html">
                 2025-11-30
                 <span class="date-tag">2025/11/30</span>
+            </a>
+        </li>
+
+        <li>
+            <a href="GaitPart.md">
+                2025-12-07 (GaitPart)
+                <span class="date-tag">2025/12/07</span>
+            </a>
+        </li>
+    </ul>
+
+    <h2>论文列表</h2>
+
+    <ul class="directory-list">
+        <li>
+            <a href="Gait Recognition via Effective Global-Local Feature Representation and Local Temporal Aggregation.pdf" target="_blank">
+                Gait Recognition via Effective Global-Local Feature Representation...
+                <span class="type-tag">PDF</span>
+            </a>
+        </li>
+
+        <li>
+            <a href="GaitPart Temporal Part-Based Model for Gait Recognition.pdf" target="_blank">
+                GaitPart: Temporal Part-Based Model for Gait Recognition
+                <span class="type-tag">PDF</span>
+            </a>
+        </li>
+
+        <li>
+            <a href="GaitSet Cross-view Gait Recognition through Utilizing Gait as a Deep Set.pdf" target="_blank">
+                GaitSet: Cross-view Gait Recognition through Utilizing Gait as a Deep Set
+                <span class="type-tag">PDF</span>
+            </a>
+        </li>
+
+        <li>
+            <a href="research.pdf" target="_blank">
+                Research Document
+                <span class="type-tag">PDF</span>
             </a>
         </li>
     </ul>
