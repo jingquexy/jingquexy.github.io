@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gaitpart.py</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 20px; background: #2d2d2d; color: #f8f8f2; font-family: consolas, monospace; }
+        .back-btn { 
+            display: inline-block; padding: 8px 16px; margin-bottom: 20px; 
+            background: #61dafb; color: #000; text-decoration: none; border-radius: 4px; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-btn">← 返回目录</a>
+
+    <pre><code class="language-python">import torch
+import torch.nn as nn
+from ..base_model import BaseModel
+from ..modules import SetBlockWrapper, HorizontalPoolingPyramid, PackSequenceWrapper, SeparateFCs
+from utils import clones
+
+
+# 基础的一维卷积封装，用于后续构建微动捕捉模块
+class BasicConv1d(nn.Module):
+    '''
+    参数：
+        in_channels: 输入数据的通道数
+        out_channels: 输出数据的通道数
+        kernel_size: 卷积核的大小
+        **kwargs: 其他传递给nn.Conv1d的参数
+    返回值：经过一维卷积处理后的输出数据
+    '''
+    def __init__(self, in_channels, out_channels, kernel_size, **kwargs):
+        super(BasicConv1d, self).__init__() # 初始化父类
+        self.conv = nn.Conv1d(in_channels, out_channels,
+                              kernel_size, bias=False, **kwargs) # 卷积层定义，不使用偏置项
+
+    def forward(self, x):
+        ret = self.conv(x) #  将输入x通过卷积层处理
+        return ret
+
+
+# 核心模块：时序特征聚合器 (对应论文中的MCM集合)
+# 作用：对每个部位的时间序列进行建模，捕捉微动特征
+class TemporalFeatureAggregator(nn.Module):
+    def __init__(self, in_channels, squeeze=4, parts_num=16):
+        super(TemporalFeatureAggregator, self).__init__()
+        hidden_dim = int(in_channels // squeeze) # 隐藏层维度为输入通道数的1/squeeze，降维比例，减少参数量
+        self.parts_num = parts_num
+
+        # MTB1(Multi-Temporal Branch 1) 3x1卷积模块，用于提取短时微动特征
+        conv3x1 = nn.Sequential(
+            BasicConv1d(in_channels, hidden_dim, 3, padding=1),
+            nn.LeakyReLU(inplace=True),
+            BasicConv1d(hidden_dim, in_channels, 1))
+        self.conv1d3x1 = clones(conv3x1, parts_num) # parts_num：为16个部位创建了16个独立的卷积网络，互不共享参数
+        self.avg_pool3x1 = nn.AvgPool1d(3, stride=1, padding=1)
+        self.max_pool3x1 = nn.MaxPool1d(3, stride=1, padding=1)
+
+        # MTB2 使用不同的Kernel Size (3x3)，感受野不同，同样并行且参数独立
+        conv3x3 = nn.Sequential(
+            BasicConv1d(in_channels, hidden_dim, 3, padding=1),
+            nn.LeakyReLU(inplace=True),
+            BasicConv1d(hidden_dim, in_channels, 3, padding=1))
+        self.conv1d3x3 = clones(conv3x3, parts_num)
+        self.avg_pool3x3 = nn.AvgPool1d(5, stride=1, padding=2) #  window size 5
+        self.max_pool3x3 = nn.MaxPool1d(5, stride=1, padding=2)
+
+        # Temporal Pooling, TP 时间池化
+        self.TP = torch.max # Max Pooling
+
+    def forward(self, x):
+        """
+          Input:  x,   [n, c, s, p] - 输入张量，n为批次大小，c为通道数，s为序列长度/帧数，p为切片数
+          Output: ret, [n, c, p]
+        """
+        n, c, s, p = x.size()
+        # 维度变换：将p (parts)移到最前面，方便后面遍历每个part
+        x = x.permute(3, 0, 1, 2).contiguous()  # [p, n, c, s]
+        # 将tensor切分成p个单独的tensor，每个对应身体的一个部位
+        feature = x.split(1, 0)  # [[1, n, c, s], ...]，列表，包含p个[1, n, c, s]的tensor
+        # 展平以便通过1D卷积和池化处理：视作(Batch*Parts)个样本
+        x = x.view(-1, c, s) # x变成了[p*n, c, s]的形状，因为AvgPool/MaxPool可以在所有parts上共享计算逻辑
+        # 但是Attention的Conv网络是独立的，所以下面Attention计算比较特殊
+
+        # MTB1: ConvNet1d & Sigmoid 
+        # 1.计算Attention(S_logits -> Sigmoid)
+        logits3x1 = torch.cat([conv(_.squeeze(0)).unsqueeze(0) 
+                               for conv, _ in zip(self.conv1d3x1, feature)], 0) # 让第i个卷积网络处理第i个部位的数据
+        scores3x1 = torch.sigmoid(logits3x1) # [p, n, c, s]
+        
+        # 2.计算Template Function(Avg+Max)
+        feature3x1 = self.avg_pool3x1(x) + self.max_pool3x1(x)
+        feature3x1 = feature3x1.view(p, n, c, s) # 还原形状
+        # 3.加权(Re-weighting)
+        feature3x1 = feature3x1 * scores3x1
+
+        # MTB2: ConvNet1d & Sigmoid
+        # 同上，只是卷积核和池化窗口不同
+        logits3x3 = torch.cat([conv(_.squeeze(0)).unsqueeze(0)
+                               for conv, _ in zip(self.conv1d3x3, feature)], 0)
+        scores3x3 = torch.sigmoid(logits3x3)
+        # MTB2: Template Function
+        feature3x3 = self.avg_pool3x3(x) + self.max_pool3x3(x)
+        feature3x3 = feature3x3.view(p, n, c, s)
+        feature3x3 = feature3x3 * scores3x3
+
+        # Temporal Pooling 融合MTB1和MTB2的特征，并在时间维度s上取最大值 (dim=-1)
+        ret = self.TP(feature3x1 + feature3x3, dim=-1)[0]  # [p, n, c] # 多尺度融合
+        ret = ret.permute(1, 2, 0).contiguous()  # [n, c, p]
+        return ret
+
+
+class GaitPart(BaseModel):
+    def __init__(self, *args, **kargs):
+        super(GaitPart, self).__init__(*args, **kargs)
+        """
+            GaitPart: Temporal Part-based Model for Gait Recognition
+            Paper:    https://openaccess.thecvf.com/content_CVPR_2020/papers/Fan_GaitPart_Temporal_Part-Based_Model_for_Gait_Recognition_CVPR_2020_paper.pdf
+            Github:   https://github.com/ChaoFan96/GaitPart
+        """
+
+    def build_network(self, model_cfg):
+
+        self.Backbone = self.get_backbone(model_cfg['backbone_cfg']) # 1.Backbone骨干网络 (通常是类似ResNet9或简单的CNN)
+        head_cfg = model_cfg['SeparateFCs']
+        self.Head = SeparateFCs(**model_cfg['SeparateFCs']) # 4.Head:分类头，SeparateFCs意味着每个part都有自己独立的全连接层进行映射
+        self.Backbone = SetBlockWrapper(self.Backbone) # 用SetBlockWrapper包装，因为输入是 5D [n, c, s, h, w]，而CNN处理4D
+        self.HPP = SetBlockWrapper( # 2.HPP:空间特征提取-水平池化金字塔，将特征图切成strips
+            HorizontalPoolingPyramid(bin_num=model_cfg['bin_num']))
+        self.TFA = PackSequenceWrapper(TemporalFeatureAggregator( # 3.TFA: 时序特征聚合-核心模块，PackSequenceWrapper用于处理变长序列（通过seqL）
+            in_channels=head_cfg['in_channels'], parts_num=head_cfg['parts_num']))
+
+    def forward(self, inputs):
+        # ipts: [n, s, h, w] 或 [n, c, s, h, w]
+        # seqL: 每个样本的实际帧数（用于处理变长序列）
+        ipts, labs, _, _, seqL = inputs
+
+        sils = ipts[0] # 剪影数据
+        if len(sils.size()) == 4:
+            sils = sils.unsqueeze(1) # 增加channel维度 -> [n, 1, s, h, w]
+
+        del ipts
+        out = self.Backbone(sils)  # [n, c, s, h, w] # 1.骨干网络提取帧级特征
+        out = self.HPP(out)  # [n, c, s, p] # 2.水平池化，图像转换为Part向量，p是切片数量
+        out = self.TFA(out, seqL)  # [n, c, p] # 3.时序聚合，捕捉微动
+
+        embs = self.Head(out)  # [n, c, p] # 4.映射到度量空间
+
+        n, _, s, h, w = sils.size()
+        retval = {
+            'training_feat': {
+                'triplet': {'embeddings': embs, 'labels': labs}
+            },
+            'visual_summary': {
+                'image/sils': sils.view(n*s, 1, h, w)
+            },
+            'inference_feat': {
+                'embeddings': embs
+            }
+        }
+        return retval</code></pre>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</body>
+</html>

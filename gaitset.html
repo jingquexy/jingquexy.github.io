@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gaitset.py</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 20px; background: #2d2d2d; color: #f8f8f2; font-family: consolas, monospace; }
+        .back-btn { 
+            display: inline-block; padding: 8px 16px; margin-bottom: 20px; 
+            background: #61dafb; color: #000; text-decoration: none; border-radius: 4px; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-btn">← 返回目录</a>
+
+    <pre><code class="language-python">import torch
+import copy
+import torch.nn as nn
+
+from ..base_model import BaseModel
+from ..modules import SeparateFCs, BasicConv2d, SetBlockWrapper, HorizontalPoolingPyramid, PackSequenceWrapper
+
+
+class GaitSet(BaseModel):
+    """
+        GaitSet: Regarding Gait as a Set for Cross-View Gait Recognition
+        Arxiv:  https://arxiv.org/abs/1811.06186
+        Github: https://github.com/AbnerHqC/GaitSet
+        
+    核心思想：
+        1. Set Perspective: 将步态序列视为无序的“集合”而非严格的时间序列，通过 Set Pooling (SP) 聚合特征，具有“置换不变性”。
+        2. MGL (Multilayer Global Pipeline): 双流架构，"Main Stream"提取局部帧特征，"Global Stream"融合多尺度下的集合级特征。
+        3. HPP (Horizontal Pooling Pyramid): 对特征图进行水平切片，提取细粒度的空间特征。
+    """
+
+    def build_network(self, model_cfg):
+        in_c = model_cfg['in_channels']
+        # --- [1. Frame-level Extractors] 帧级特征提取器 ---
+        # 负责提取每一帧图像的局部视觉特征。
+        # Block 1 & 2: 包含下采样 (MaxPool)，逐步降低分辨率并增加通道数。
+        self.set_block1 = nn.Sequential(BasicConv2d(in_c[0], in_c[1], 5, 1, 2), 
+                                        nn.LeakyReLU(inplace=True), 
+                                        BasicConv2d(in_c[1], in_c[1], 3, 1, 1), 
+                                        nn.LeakyReLU(inplace=True), 
+                                        nn.MaxPool2d(kernel_size=2, stride=2)) 
+
+        self.set_block2 = nn.Sequential(BasicConv2d(in_c[1], in_c[2], 3, 1, 1),
+                                        nn.LeakyReLU(inplace=True),
+                                        BasicConv2d(in_c[2], in_c[2], 3, 1, 1),
+                                        nn.LeakyReLU(inplace=True),
+                                        nn.MaxPool2d(kernel_size=2, stride=2))
+
+        # 不包含池化层（保持分辨率），提取深层语义特征。
+        self.set_block3 = nn.Sequential(BasicConv2d(in_c[2], in_c[3], 3, 1, 1), 
+                                        nn.LeakyReLU(inplace=True),
+                                        BasicConv2d(in_c[3], in_c[3], 3, 1, 1),
+                                        nn.LeakyReLU(inplace=True)) 
+
+        # --- [2. Set-level Refiners] 集合级特征精炼器 (MGL部分) ---
+        # 用于处理经过 Set Pooling 聚合后的全局特征 (Global Stream)。
+        # 结构复用 set_block2/3 的设计，但不共享权重。
+        self.gl_block2 = copy.deepcopy(self.set_block2)
+        self.gl_block3 = copy.deepcopy(self.set_block3)
+
+        # --- [3. Wrappers & Pooling] 包装器与池化 ---
+        self.set_block1 = SetBlockWrapper(self.set_block1)
+        self.set_block2 = SetBlockWrapper(self.set_block2)
+        self.set_block3 = SetBlockWrapper(self.set_block3)
+
+        # Set Pooling(SP): 论文核心。在时间维度S上取Max，将帧集合压缩为单一特征图。
+        # 赋予模型对帧顺序不敏感的特性（Permutation Invariance）。
+        self.set_pooling = PackSequenceWrapper(torch.max) # 在时间维度S上取最大值
+
+        # --- [4. Head & Output] 特征映射与分类 ---
+        # SeparateFCs: 独立全连接层，将 HPP 产生的每个 strip 特征映射到度量空间。
+        self.Head = SeparateFCs(**model_cfg['SeparateFCs'])
+
+        # HPP: 水平金字塔池化，将特征图水平切条，捕获人体不同部位的细节。
+        self.HPP = HorizontalPoolingPyramid(bin_num=model_cfg['bin_num'])
+
+    def forward(self, inputs):
+        """
+        前向传播逻辑实现 Multilayer Global Pipeline (MGL)。
+        数据流分为两条：
+        1. outs (Main Stream): 逐帧提取特征。
+        2. gl (Global Stream): 聚合不同阶段的帧级特征，形成多尺度的全局描述。
+        """
+        ipts, labs, _, _, seqL = inputs
+        
+        sils = ipts[0]  # Silhouettes/轮廓图 [n, s, h, w] 
+        if len(sils.size()) == 4: 
+            sils = sils.unsqueeze(1) # -> [n, 1, s, h, w]
+
+        del ipts
+        # 三级特征提取 Block 1
+        outs = self.set_block1(sils) # Frame-level: 基础特征提取
+        gl = self.set_pooling(outs, seqL, options={"dim": 2})[0] # SP: 聚合得到初始全局特征
+        gl = self.gl_block2(gl) # Set-level: 全局特征进一步卷积
+
+        # 第二级特征提取 Block 2 MGL Fusion
+        outs = self.set_block2(outs) # Frame-level: 下采样&提取
+        # MGL核心：将当前阶段的Frame特征聚合后，以残差形式注入Global流
+        gl = gl + self.set_pooling(outs, seqL, options={"dim": 2})[0] 
+        gl = self.gl_block3(gl)
+
+        # 第三级特征提取 Block 3 Final Fusion
+        uts = self.set_block3(outs)  # Frame-level: 深层特征
+        outs = self.set_pooling(outs, seqL, options={"dim": 2})[0] # 最终特征池化
+        gl = gl + outs # 最终融合：Global流 + 最终Frame流的聚合
+
+        # === Feature Mapping (HPP + Head) ===
+        # 分别对 "局部流的最终输出" 和 "全局流的最终输出" 进行 HPP 切分
+        feature1 = self.HPP(outs)  # 来自Main Stream
+        feature2 = self.HPP(gl)  # 来自Global Stream
+
+        # 拼接两流特征，获得包含局部细节和全局上下文的丰富表征
+        feature = torch.cat([feature1, feature2], -1)  
+        # 映射到Metric Space (用于Triplet Loss)
+        embs = self.Head(feature)  
+
+        n, _, s, h, w = sils.size() 
+        retval = { 
+            'training_feat': { 
+                'triplet': {'embeddings': embs, 'labels': labs}
+            },
+            'visual_summary': {
+                'image/sils': sils.view(n*s, 1, h, w)
+            },
+            'inference_feat': {
+                'embeddings': embs
+            }
+        }
+        return retval</code></pre>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</body>
+</html>

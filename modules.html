@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>modules.py</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 20px; background: #2d2d2d; color: #f8f8f2; font-family: consolas, monospace; }
+        .back-btn { 
+            display: inline-block; padding: 8px 16px; margin-bottom: 20px; 
+            background: #61dafb; color: #000; text-decoration: none; border-radius: 4px; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-btn">← 返回目录</a>
+
+    <pre><code class="language-python">import torch
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
+from utils import clones, is_list_or_tuple
+from torchvision.ops import RoIAlign
+
+# 水平金字塔池化模块，解决不同尺度下人体特征的提取问题
+class HorizontalPoolingPyramid():
+    """
+        Horizontal Pyramid Matching for Person Re-identification
+        Arxiv: https://arxiv.org/abs/1804.05275
+        Github: https://github.com/SHI-Labs/Horizontal-Pyramid-Matching
+    """
+
+    def __init__(self, bin_num=None):
+        if bin_num is None:
+            bin_num = [16, 8, 4, 2, 1]
+        self.bin_num = bin_num
+
+    def __call__(self, x):
+        """
+            x: [n, c, h, w]
+            ret: [n, c, p]，p = sum(bin_num) eg.16+8+4+2+1=31
+        """
+        n, c = x.size()[:2]
+        features = []
+        for b in self.bin_num:
+            z = x.view(n, c, b, -1) # [n, c, b, w*h/b] # 将特征图在高度方向(H)切分成b份
+            z = z.mean(-1) + z.max(-1)[0] # Avg + Max Pooling
+            features.append(z)
+        return torch.cat(features, -1) # [n, c, p],
+
+# 通用数据包装与处理 (Data Wrappers)
+# 1. 解决步态数据维度与标准CNN接口不匹配的问题
+class SetBlockWrapper(nn.Module):
+    def __init__(self, forward_block):
+        super(SetBlockWrapper, self).__init__()
+        self.forward_block = forward_block
+
+    def forward(self, x, *args, **kwargs):
+        n, c, s, h, w = x.size()
+        x = self.forward_block(x.transpose( # [n, c, s, h, w] -> transpose -> [n, s, c, h, w]
+            1, 2).reshape(-1, c, h, w), *args, **kwargs) # [n, s, c, h, w] -> reshape -> [n*s, c, h, w]，输入2D CNN的forward_block处理
+        output_size = x.size()
+        return x.reshape(n, s, *output_size[1:]).transpose(1, 2).contiguous() # 还原N和S维度
+
+
+# 2. 变长序列的处理，处理 Batch 中每个样本帧数不一样的情况
+# 根据真实的帧数seqL提取有效数据进行池化聚合
+class PackSequenceWrapper(nn.Module):
+    def __init__(self, pooling_func):
+        super(PackSequenceWrapper, self).__init__()
+        self.pooling_func = pooling_func
+
+    def forward(self, seqs, seqL, dim=2, options={}):
+        """
+        seqs: [n, c, s, ...] 序列特征
+        seqL: [n] 每个样本的真实帧数列表
+        """
+        if seqL is None:
+            return self.pooling_func(seqs, **options)
+        seqL = seqL[0].data.cpu().numpy().tolist()
+        start = [0] + np.cumsum(seqL).tolist()[:-1] # 计算每个序列的起始索引[0, len1, len1+len2, ...]
+
+        rets = []
+        for curr_start, curr_seqL in zip(start, seqL):
+            narrowed_seq = seqs.narrow(dim, curr_start, curr_seqL) # 沿dim维度切取当前样本的有效帧
+            rets.append(self.pooling_func(narrowed_seq, **options)) # 池化Sequence维度
+        if len(rets) > 0 and is_list_or_tuple(rets[0]):
+            return [torch.cat([ret[j] for ret in rets]) # 拼接每个序列的结果
+                    for j in range(len(rets[0]))]
+        return torch.cat(rets)
+
+
+class BasicConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, **kwargs):
+        super(BasicConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
+                              stride=stride, padding=padding, bias=False, **kwargs)
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+# 分类头与度量学习模块 (Heads & Metric Learning)
+
+# 1. 独立全连接层，对于HPP切分出的每一个Part（eg.16个条带），使用不共享权重的独立FC进行映射
+class SeparateFCs(nn.Module):
+    def __init__(self, parts_num, in_channels, out_channels, norm=False):
+        super(SeparateFCs, self).__init__()
+        self.p = parts_num
+        self.fc_bin = nn.Parameter(
+            nn.init.xavier_uniform_( 
+                torch.zeros(parts_num, in_channels, out_channels))) # 有p个大小为 (c_in, c_out) 的矩阵
+        self.norm = norm
+
+    def forward(self, x):
+        """
+            x: [n, c_in, p] (Batch, Channel, Parts)
+            out: [n, c_out, p]
+        """
+        x = x.permute(2, 0, 1).contiguous() # [n, c_in, p] -> [p, n, c_in]
+        if self.norm:
+            out = x.matmul(F.normalize(self.fc_bin, dim=1)) # c_in L2归一化
+        else:
+            # 批量矩阵乘法 (Batch Matmul)
+            out = x.matmul(self.fc_bin) # x: [p, n, c_in] * fc: [p, c_in, c_out] -> out: [p, n, c_out]
+        return out.permute(1, 2, 0).contiguous() # 还原维度 [n, c_out, p]
+
+# 独立BN颈 (Separate BNNecks)：ReID领域的Bag of Tricks，在FC前加入Batch Normalization (BN) 
+# 解决了由度量学习（Triplet特征在超球面上聚类）和分类学习（Softmax特征被超平面划分）目标不一致导致的收敛困难问题
+class SeparateBNNecks(nn.Module):
+    """
+        Bag of Tricks and a Strong Baseline for Deep Person Re-Identification
+        CVPR Workshop:  https://openaccess.thecvf.com/content_CVPRW_2019/papers/TRMTMCT/Luo_Bag_of_Tricks_and_a_Strong_Baseline_for_Deep_Person_CVPRW_2019_paper.pdf
+        Github: https://github.com/michuanhaohao/reid-strong-baseline
+    """
+
+    def __init__(self, parts_num, in_channels, class_num, norm=True, parallel_BN1d=True):
+        super(SeparateBNNecks, self).__init__()
+        self.p = parts_num
+        self.class_num = class_num
+        self.norm = norm
+        self.fc_bin = nn.Parameter( # FC 分类器
+            nn.init.xavier_uniform_(
+                torch.zeros(parts_num, in_channels, class_num)))
+        if parallel_BN1d:
+            self.bn1d = nn.BatchNorm1d(in_channels * parts_num) # 合并p个parts进行BN # [n, c*p]
+        else:
+            self.bn1d = clones(nn.BatchNorm1d(in_channels), parts_num) # clones工具，每个part独立BN # [p, n, c]
+        self.parallel_BN1d = parallel_BN1d
+
+    def forward(self, x):
+        """
+            x: [n, c, p]
+        """
+        # --- 1. Batch Normalization ---
+        if self.parallel_BN1d:
+            n, c, p = x.size()
+            x = x.view(n, -1)  # Flatten ->[n, c*p]
+            x = self.bn1d(x) # 全局BN
+            x = x.view(n, c, p)
+        else:
+            x = torch.cat([bn(_x) for _x, bn in zip(
+                x.split(1, 2), self.bn1d)], 2)  # 逐个part [p, n, c] -> BN -> [n, c, p]
+        feature = x.permute(2, 0, 1).contiguous() # [n, c, p] -> [p, n, c]
+        # --- 2. Fully Connected Layer (Classifier) ---
+        if self.norm:
+            feature = F.normalize(feature, dim=-1) # 特征L2归一化
+            logits = feature.matmul(F.normalize(
+                self.fc_bin, dim=1)) # 权重L2归一化-> [p, n, c_out]
+        else:
+            # 标准全连接映射
+            logits = feature.matmul(self.fc_bin) # [p, n, c] x [p, c, class_num] -> [p, n, class_num]
+        # feature（经过BN归一化，用于Triplet Loss）和 logits（经过FC，用于Softmax Loss）
+        return feature.permute(1, 2, 0).contiguous(), logits.permute(1, 2, 0).contiguous()
+
+# Focal Conv2d: GaitPart自适应感受野卷积。
+# HPM的一种进化，在切分后的局部特征上应用卷积，限制卷积核的感受野范围，使其专注于局部细节
+class FocalConv2d(nn.Module):
+    """
+        GaitPart: Temporal Part-based Model for Gait Recognition
+        CVPR2020: https://openaccess.thecvf.com/content_CVPR_2020/papers/Fan_GaitPart_Temporal_Part-Based_Model_for_Gait_Recognition_CVPR_2020_paper.pdf
+        Github: https://github.com/ChaoFan96/GaitPart
+    """
+    def __init__(self, in_channels, out_channels, kernel_size, halving, **kwargs):
+        super(FocalConv2d, self).__init__()
+        self.halving = halving # halving=0不切分，=1切分为2块，=2切分为4块
+        self.conv = nn.Conv2d(in_channels, out_channels,
+                              kernel_size, bias=False, **kwargs)
+
+    def forward(self, x):
+        if self.halving == 0:
+            z = self.conv(x) # 不切分，标准2D卷积
+        else:
+            h = x.size(2)
+            split_size = int(h // 2**self.halving) 
+            z = x.split(split_size, 2) # 在高度维度 (dim=2) 上进行切分，[n, c, h, w] -> 多个[n, c, split_size, w]
+            z = torch.cat([self.conv(_) for _ in z], 2) # 逐块（每个part独立进行）卷积后拼接
+        return z
+
+
+class BasicConv3d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=(3, 3, 3), stride=(1, 1, 1), padding=(1, 1, 1), bias=False, **kwargs):
+        super(BasicConv3d, self).__init__()
+        self.conv3d = nn.Conv3d(in_channels, out_channels, kernel_size=kernel_size,
+                                stride=stride, padding=padding, bias=bias, **kwargs)
+
+    def forward(self, ipts):
+        '''
+            ipts: [n, c, s, h, w]
+            outs: [n, c, s, h, w]
+        '''
+        outs = self.conv3d(ipts)
+        return outs</code></pre>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</body>
+</html>
