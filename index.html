@@ -41,11 +41,10 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
         
-
         .directory-list a {
             display: flex;                  
             justify-content: space-between; 
-            align-items: center;         
+            align-items: center;          
             padding: 15px 20px;
             text-decoration: none;
             color: #2980b9;
@@ -53,17 +52,15 @@
             font-size: 1.1em;
         }
         
-
         .file-name {
-            flex: 1;              
-            margin-right: 15px;      
-            word-wrap: break-word;   
-            word-break: break-all;  
+            flex: 1;               
+            margin-right: 15px;       
+            word-wrap: break-word;    
+            word-break: break-all;   
         }
 
-
         .tag {
-            flex-shrink: 0;   
+            flex-shrink: 0;    
             font-size: 0.75em;
             color: #555;
             padding: 2px 6px;
@@ -77,6 +74,12 @@
             color: #7f8c8d;
             background-color: transparent;
             font-size: 0.85em;
+        }
+        
+        /* 增加一个代码标签的特定样式（可选，如果想要区分颜色） */
+        .tag.code {
+            color: #27ae60;
+            background-color: #eafaf1;
         }
 
         .directory-list a:hover {
@@ -141,6 +144,38 @@
             <a href="research.pdf" target="_blank">
                 <span class="file-name">Research Document</span>
                 <span class="tag">PDF</span>
+            </a>
+        </li>
+    </ul>
+
+    <h2>代码目录</h2>
+
+    <ul class="directory-list">
+        <li>
+            <a href="gaitgl.py" target="_blank">
+                <span class="file-name">gaitgl.py</span>
+                <span class="tag code">Python</span>
+            </a>
+        </li>
+
+        <li>
+            <a href="gaitpart.py" target="_blank">
+                <span class="file-name">gaitpart.py</span>
+                <span class="tag code">Python</span>
+            </a>
+        </li>
+
+        <li>
+            <a href="gaitset.py" target="_blank">
+                <span class="file-name">gaitset.py</span>
+                <span class="tag code">Python</span>
+            </a>
+        </li>
+
+        <li>
+            <a href="modules.py" target="_blank">
+                <span class="file-name">modules.py</span>
+                <span class="tag code">Python</span>
             </a>
         </li>
     </ul>
