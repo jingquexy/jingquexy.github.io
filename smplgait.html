@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>smplgait.py</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 20px; background: #2d2d2d; color: #f8f8f2; font-family: consolas, monospace; }
+        .back-btn { 
+            display: inline-block; padding: 8px 16px; margin-bottom: 20px; 
+            background: #61dafb; color: #000; text-decoration: none; border-radius: 4px; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-btn">← 返回目录</a>
+
+    <pre><code class="language-python">'''
+Modifed from https://github.com/Gait3D/Gait3D-Benchmark/blob/72beab994c137b902d826f4b9f9e95b107bebd78/lib/modeling/models/smplgait.py
+'''
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
+
+from ..base_model import BaseModel
+from ..modules import SetBlockWrapper, HorizontalPoolingPyramid, PackSequenceWrapper, SeparateFCs, SeparateBNNecks
+
+
+class SMPLGait(BaseModel):
+    """
+    SMPLGait 模型
+    结合了2D轮廓特征 (Silhouette) 和3D SMPL参数特征的步态识别模型。
+    """
+    def __init__(self, cfgs, is_training):
+        super().__init__(cfgs, is_training)
+
+    def build_network(self, model_cfg):
+        # --- 基础视觉分支 (Baseline components) ---
+        # 骨干网络 (Backbone)，通常是ResNet或类似结构，用于提取轮廓图特征
+        self.Backbone = self.get_backbone(model_cfg['backbone_cfg'])
+        self.Backbone = SetBlockWrapper(self.Backbone)
+        self.FCs = SeparateFCs(**model_cfg['SeparateFCs']) # 独立全连接层，用于特征映射
+        self.BNNecks = SeparateBNNecks(**model_cfg['SeparateBNNecks']) # 用于三元组损失和分类损失的平衡
+        self.TP = PackSequenceWrapper(torch.max) # 时序池化Temporal Pooling，使用Max Pooling
+        self.HPP = HorizontalPoolingPyramid(bin_num=model_cfg['bin_num']) # 水平金字塔池化，用于提取不同高度的人体局部特征
+
+        # --- SMPL分支(SMPL components) ---
+        # 多层感知机(MLP)，用于处理SMPL参数
+        self.fc1 = nn.Linear(85, 128) # 输入维度85通常由: 72(Pose) + 10(Shape) + 3(Translation) 组成
+        self.fc2 = nn.Linear(128, 256)
+        self.fc3 = nn.Linear(256, 256) # 输出 256，后续会reshape成 16x16 的矩阵
+        self.bn1 = nn.BatchNorm1d(128)
+        self.bn2 = nn.BatchNorm1d(256)
+        self.bn3 = nn.BatchNorm1d(256)
+        self.dropout2 = nn.Dropout(p=0.2)
+        self.dropout3 = nn.Dropout(p=0.2)
+
+    def forward(self, inputs):
+        ipts, labs, _, _, seqL = inputs # ipts包含图像数据和SMPL数据；labs: 标签, seqL: 序列长度
+
+        sils = ipts[0]    # 2D轮廓图序列: [n, s, h, w] (Batch_size, Sequence_len, Height, Width)
+        smpls = ipts[1]   # 3D SMPL参数序列: [n, s, d] (通常 d=85)
+
+        # ----------------------------------------
+        # 1. 提取SMPL特征（学习参数）并生成变换矩阵
+        # ----------------------------------------
+
+        n, s, d = smpls.size()
+        sps = smpls.view(-1, d) # 展平Batch和Sequence维度以输入MLP
+        del smpls
+
+        sps = F.relu(self.bn1(self.fc1(sps)))
+        sps = F.relu(self.bn2(self.dropout2(self.fc2(sps))))  # (Batch*Sequence, 256)
+        sps = F.relu(self.bn3(self.dropout3(self.fc3(sps))))  # (Batch*Sequence, 256)
+        sps = sps.reshape(n, 1, s, 16, 16)  # 将256维向量Reshape成 16x16 的矩阵（视觉特征图的空间尺寸）
+        # 构建单位矩阵(Identity Matrix)
+        # 类似于ResNet的残差思想，让网络学习相对于单位变换的偏移量 (Transformation Residual)
+        iden = Variable(torch.eye(16)).unsqueeze(
+            0).repeat(n, 1, s, 1, 1)   # [n, 1, s, 16, 16]
+        if sps.is_cuda:
+            iden = iden.cuda()
+        # 最终的变换矩阵 = 学习到的矩阵 + 单位矩阵
+        sps_trans = sps + iden   # [n, 1, s, 16, 16]
+
+        # ----------------------------------------
+        # 2. 提取视觉特征 (Backbone)
+        # ----------------------------------------
+
+        if len(sils.size()) == 4:
+            sils = sils.unsqueeze(1) # 确保有Channel维度 [n, 1, s, h, w]
+
+        del ipts
+        outs = self.Backbone(sils)  # 提取特征: [n, c, s, h, w] (假设输出尺寸为 16x8 或类似)
+        outs_n, outs_c, outs_s, outs_h, outs_w = outs.size()
+
+        # ----------------------------------------
+        # 3. 特征对齐与变换 (SMPL Guided Transformation)
+        # ----------------------------------------
+
+        # 视觉特征图通常是矩形的 (例如高16，宽8)，但变换矩阵是方阵 (16x16)。
+        zero_tensor = Variable(torch.zeros( # 用0填充宽度方向，使其变成正方形 (16x16)，以便进行矩阵乘法。
+            (outs_n, outs_c, outs_s, outs_h, outs_h-outs_w)))
+        if outs.is_cuda:
+            zero_tensor = zero_tensor.cuda()
+        # 拼接填充: [n, s, c, h, w] -> [n, s, c, h, h] (即16x16)
+        outs = torch.cat([outs, zero_tensor], -1)
+        outs = outs.reshape(outs_n*outs_c*outs_s, outs_h, # Reshape准备进行批量矩阵乘法 (Batch Matrix Multiplication)
+                            outs_h)   # [n*c*s, 16, 16]，将Batch, Channel, Sequence合并，视作独立的样本
+
+        # 扩展SMPL变换矩阵以匹配视觉特征的Channel维度
+        sps = sps_trans.repeat(1, outs_c, 1, 1, 1).reshape(
+            outs_n * outs_c * outs_s, 16, 16)
+
+        # 核心操作：利用SMPL生成的矩阵对视觉特征进行变换对齐
+        outs_trans = torch.bmm(outs, sps) # outs (视觉特征) * sps (3D引导的变换矩阵)
+        outs_trans = outs_trans.reshape(outs_n, outs_c, outs_s, outs_h, outs_h) # 恢复原始维度结构
+
+        # ----------------------------------------
+        # 4. 后处理与特征映射
+        # ----------------------------------------
+
+        # 时序池化 (TP): 在时间维度s上取最大值，压缩时序信息
+        outs_trans = self.TP(outs_trans, seqL, options={"dim": 2})[
+            0]  # [n, c, h, w]，注意：这里的 w 实际上已经是 h 了，即 16
+        # 水平金字塔池化: 将特征图水平切片，提取局部特征
+        feat = self.HPP(outs_trans)  # [n, c, p]，p是切片后的特征数
+        embed_1 = self.FCs(feat)  # [n, c, p]，全连接层映射
+
+        # BNNeck归一化，logits用于分类损失(Softmax)，embed_1用于三元组损失(Triplet)
+        embed_2, logits = self.BNNecks(embed_1)  # [n, c, p]
+
+        n, _, s, h, w = sils.size()
+        retval = {
+            'training_feat': {
+                'triplet': {'embeddings': embed_1, 'labels': labs},
+                'softmax': {'logits': logits, 'labels': labs}
+            },
+            'visual_summary': {
+                'image/sils': sils.view(n*s, 1, h, w)
+            },
+            'inference_feat': {
+                'embeddings': embed_1
+            }
+        }
+        return retval
+</code></pre>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>skeletongait++.py</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 20px; background: #2d2d2d; color: #f8f8f2; font-family: consolas, monospace; }
+        .back-btn { 
+            display: inline-block; padding: 8px 16px; margin-bottom: 20px; 
+            background: #61dafb; color: #000; text-decoration: none; border-radius: 4px; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-btn">← 返回目录</a>
+
+    <pre><code class="language-python">import torch
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
+from ..base_model import BaseModel
+from ..modules import HorizontalPoolingPyramid, PackSequenceWrapper, SeparateFCs, SeparateBNNecks, SetBlockWrapper, conv3x3, conv1x1, BasicBlock2D, BasicBlockP3D
+
+from einops import rearrange
+
+import copy
+
+class SkeletonGaitPP(BaseModel):
+   '''
+    双分支Dual-branch架构：
+        轮廓分支 Silhouette Branch：处理传统的二值轮廓图。
+        骨架图分支 Skeleton Map Branch：处理论文提出的骨架热图Skeleton Map。
+    两个分支在浅层Stage 0和Stage 1独立提取特征，
+    通过融合模块Fusion Module结合后，
+    进入共享的深层网络Stage2~4进行时空特征建模。
+   '''
+
+   def build_network(self, model_cfg):
+       #B, C = [1, 4, 4, 1], 2。 backbone的通道数C和每个stage的block数量B
+       in_C, B, C = model_cfg['Backbone']['in_channels'], model_cfg['Backbone']['blocks'], model_cfg['Backbone']['C']
+       self.inference_use_emb = model_cfg['use_emb2'] if 'use_emb2' in model_cfg else False
+
+       self.inplanes = 32 * C
+
+       # 分支 1: 轮廓分支Silhouette Branch，图4(c)中的上路分支Conv0
+       self.sil_layer0 = SetBlockWrapper(nn.Sequential(
+           conv3x3(1, self.inplanes, 1), # 输入通道为1（二值轮廓图）
+           nn.BatchNorm2d(self.inplanes),
+           nn.ReLU(inplace=True)
+       ))
+
+       # 分支 2: 骨架图分支 Skeleton Map Branch，图4(c)中的下路分支 Conv0
+       self.map_layer0 = SetBlockWrapper(nn.Sequential(
+           conv3x3(2, self.inplanes, 1),  # 输入通道为2 (Skeleton Map包含两层：关节图Joint Map + 肢体图Limb Map)
+           nn.BatchNorm2d(self.inplanes),
+           nn.ReLU(inplace=True)
+       ))
+
+       # Stage 1: 独立特征提取，两个分支分别经过各自的 Stage 1 (BasicBlock2D)
+       self.sil_layer1 = SetBlockWrapper(self.make_layer(BasicBlock2D, 32 * C, stride=[1, 1], blocks_num=B[0], mode='2d'))
+       self.map_layer1 = copy.deepcopy(self.sil_layer1)
+       # 融合模块：Fusion Module，默认使用 Attention Fusion
+       self.fusion = AttentionFusion(32 * C)
+
+       # Shared Backbone (Stage2~4)：融合后的特征进入共享的主干网络，使用 P3D (Pseudo-3D) 模块
+       # 对应 DeepGaitV2 的架构
+       self.layer2 = self.make_layer(BasicBlockP3D, 64 * C, stride=[2, 2], blocks_num=B[1], mode='p3d')
+       self.layer3 = self.make_layer(BasicBlockP3D, 128 * C, stride=[2, 2], blocks_num=B[2], mode='p3d')
+       self.layer4 = self.make_layer(BasicBlockP3D, 256 * C, stride=[1, 1], blocks_num=B[3], mode='p3d')
+
+       # Head (分类头)：包含独立的 FC 和 BNNeck，用于OpenGait框架下的特征映射
+       self.FCs = SeparateFCs(16, 256*C, 128*C)
+       self.BNNecks = SeparateBNNecks(16, 128*C, class_num=model_cfg['SeparateBNNecks']['class_num'])
+
+       self.TP = PackSequenceWrapper(torch.max) # 时序池化 
+       self.HPP = HorizontalPoolingPyramid(bin_num=[16]) # 水平金字塔池化
+
+   def make_layer(self, block, planes, stride, blocks_num, mode='2d'):
+
+       if max(stride) > 1 or self.inplanes != planes * block.expansion:
+           if mode == '3d':
+               downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=[1, 1, 1], stride=stride, padding=[0, 0, 0], bias=False), nn.BatchNorm3d(planes * block.expansion))
+           elif mode == '2d':
+               downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride=stride), nn.BatchNorm2d(planes * block.expansion))
+           elif mode == 'p3d':
+               downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=[1, 1, 1], stride=[1, *stride], padding=[0, 0, 0], bias=False), nn.BatchNorm3d(planes * block.expansion))
+           else:
+               raise TypeError('xxx')
+       else:
+           downsample = lambda x: x
+
+       layers = [block(self.inplanes, planes, stride=stride, downsample=downsample)]
+       self.inplanes = planes * block.expansion
+       s = [1, 1] if mode in ['2d', 'p3d'] else [1, 1, 1]
+       for i in range(1, blocks_num):
+           layers.append(
+                   block(self.inplanes, planes, stride=s)
+           )
+       return nn.Sequential(*layers)
+
+   def inputs_pretreament(self, inputs):
+       ### Ensure the same data augmentation for heatmap and silhouette
+       # 数据预处理：对齐骨架图和轮廓图的数据增强
+       pose_sils = inputs[0] # 输入包含骨架和轮廓
+       new_data_list = []
+       for pose, sil in zip(pose_sils[0], pose_sils[1]): # pose: 骨架图, sil: 轮廓图
+           sil = sil[:, np.newaxis, ...] # [T, 1, H, W]
+           pose_h, pose_w = pose.shape[-2], pose.shape[-1]
+           sil_h, sil_w = sil.shape[-2], sil.shape[-1]
+           if sil_h != sil_w and pose_h == pose_w: # 如果轮廓高度不等于宽度（通常是 64x44），进行裁剪对齐
+               cutting = (sil_h - sil_w) // 2
+               pose = pose[..., cutting:-cutting]
+           
+           # 将骨架图(2通道)和轮廓图(1通道)在通道维度拼接 -> [T, 3, H, W]
+           # 让 OpenGait 的底层数据增强对两者做完全相同的变换
+           cat_data = np.concatenate([pose, sil], axis=1) 
+           new_data_list.append(cat_data)
+       new_inputs = [[new_data_list], inputs[1], inputs[2], inputs[3], inputs[4]]
+       return super().inputs_pretreament(new_inputs)
+
+   def forward(self, inputs):
+       '''
+        输入层：通过 map_layer0/1 和 sil_layer0/1 分别提取骨架和轮廓的浅层特征。
+        融合层：利用 AttentionFusion 动态学习两个模态的权重（例如在夜间或遮挡时，可能会给骨架分支更高的权重）。
+        骨干层：使用 P3D 结构提取高层语义特征。
+        输出层：使用 OpenGait 标准的 HPP + Separate BNNecks 进行特征映射和分类。
+       '''
+       ipts, labs, _, _, seqL = inputs
+
+       pose = ipts[0] # 获取拼接后的数据 [n, c, s, h, w]
+       pose = pose.transpose(1, 2).contiguous()
+       assert pose.size(-1) in [44, 48, 88, 96]
+       # 数据拆分Splitting：将预处理时拼接的数据重新拆分开
+       maps = pose[:, :2, ...] # maps: 前2个通道是骨架图 (Joint Map + Limb Map) 
+       sils = pose[:, -1, ...].unsqueeze(1) # sils: 最后1个通道是轮廓图
+
+       del ipts
+       # 双分支前向传播：骨架分支
+       map0 = self.map_layer0(maps)
+       map1 = self.map_layer1(map0)
+       
+       # 轮廓分支
+       sil0 = self.sil_layer0(sils)
+       sil1 = self.sil_layer1(sil0)
+
+       out1 = self.fusion(sil1, map1) # 特征融合：将 Stage 1 输出的特征进行融合
+       # 共享主干
+       out2 = self.layer2(out1)
+       out3 = self.layer3(out2)
+       out4 = self.layer4(out3) # 输出特征:[n, c, s, h, w]
+
+       # 后处理 (Head)，Temporal Pooling (TP)
+       outs = self.TP(out4, seqL, options={"dim": 2})[0]  # 在时间维度S上取最大值 -> [n, c, h, w]
+       n, c, h, w = outs.size()
+
+       # Horizontal Pooling Matching, HPM
+       feat = self.HPP(outs)  # 水平切片池化 -> [n, c, p]
+
+       embed_1 = self.FCs(feat)  # [n, c, p]
+       embed_2, logits = self.BNNecks(embed_1)  # [n, c, p]
+       
+       if self.inference_use_emb:
+            embed = embed_2
+       else:
+            embed = embed_1
+
+       retval = {
+           'training_feat': {
+               'triplet': {'embeddings': embed_1, 'labels': labs},
+               'softmax': {'logits': logits, 'labels': labs}
+           },
+           'visual_summary': {
+               'image/sils': rearrange(pose * 255., 'n c s h w -> (n s) c h w'),
+           },
+           'inference_feat': {
+               'embeddings': embed
+           }
+       }
+       return retval
+
+class AttentionFusion(nn.Module): 
+    def __init__(self, in_channels=64, squeeze_ratio=16):
+        super(AttentionFusion, self).__init__()
+        hidden_dim = int(in_channels / squeeze_ratio)
+        # 注意力生成网络：Squeeze(1x1) -> Relu -> Conv3x3 -> Relu -> Expand(1x1)
+        self.conv = SetBlockWrapper(
+            nn.Sequential(
+                conv1x1(in_channels * 2, hidden_dim), # 压缩通道
+                nn.BatchNorm2d(hidden_dim), 
+                nn.ReLU(inplace=True), 
+                conv3x3(hidden_dim, hidden_dim), # 感受野提取
+                nn.BatchNorm2d(hidden_dim), 
+                nn.ReLU(inplace=True), 
+                conv1x1(hidden_dim, in_channels * 2), # 恢复通道 (生成两个分支的权重)
+            )
+        )
+    
+    def forward(self, sil_feat, map_feat): 
+        '''
+            sil_feat: [n, c, s, h, w]
+            map_feat: [n, c, s, h, w]
+            输入: 轮廓特征 sil_feat, 骨架特征 map_feat
+        '''
+        c = sil_feat.size(1)
+        feats = torch.cat([sil_feat, map_feat], dim=1) # 1. 在通道维度拼接特征
+        score = self.conv(feats) # 2. 计算注意力分数 [n, 2 * c, s, h, w]
+        # 3. 维度重排以进行 Softmax
+        score = rearrange(score, 'n (d c) s h w -> n d c s h w', d=2) # 将通道分为两组 (d=2)，分别对应 sil 和 map
+        score = F.softmax(score, dim=1) # 4.在维度1 (分支维度) 上做Softmax，使得sil_score + map_score = 1
+        # 5. 加权求和 (Element-wise weighted sum)
+        retun = sil_feat * score[:, 0] + map_feat * score[:, 1] # sil_feat * sil_weight + map_feat * map_weight
+        return retun
+
+class CatFusion(nn.Module): 
+    def __init__(self, in_channels=64):
+        super(CatFusion, self).__init__()
+        self.conv = SetBlockWrapper(
+            nn.Sequential(
+                conv1x1(in_channels * 2, in_channels), 
+            )
+        )
+
+    def forward(self, sil_feat, map_feat): 
+        '''
+            sil_feat: [n, c, s, h, w]
+            map_feat: [n, c, s, h, w]
+        '''
+        feats = torch.cat([sil_feat, map_feat])
+        retun = self.conv(feats)
+        return retun
+
+class PlusFusion(nn.Module): 
+    def __init__(self):
+        super(PlusFusion, self).__init__()
+
+    def forward(self, sil_feat, map_feat): 
+        '''
+            sil_feat: [n, c, s, h, w]
+            map_feat: [n, c, s, h, w]
+        '''
+        return sil_feat + map_feat
+</code></pre>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</body>
+</html>

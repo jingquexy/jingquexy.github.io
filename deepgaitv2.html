@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>deepgaitv2.py</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 20px; background: #2d2d2d; color: #f8f8f2; font-family: consolas, monospace; }
+        .back-btn { 
+            display: inline-block; padding: 8px 16px; margin-bottom: 20px; 
+            background: #61dafb; color: #000; text-decoration: none; border-radius: 4px; font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <a href="index.html" class="back-btn">← 返回目录</a>
+
+    <pre><code class="language-python">import torch
+import torch.nn as nn
+
+import os
+import numpy as np
+import os.path as osp
+import matplotlib.pyplot as plt
+
+from ..base_model import BaseModel
+from ..modules import SetBlockWrapper, HorizontalPoolingPyramid, PackSequenceWrapper, SeparateFCs, SeparateBNNecks, conv1x1, conv3x3, BasicBlock2D, BasicBlockP3D, BasicBlock3D
+
+from einops import rearrange
+
+blocks_map = {
+    '2d': BasicBlock2D, 
+    'p3d': BasicBlockP3D, 
+    '3d': BasicBlock3D
+}
+
+class DeepGaitV2(BaseModel):
+
+    def build_network(self, model_cfg):
+        # 获取骨干网络的模式：'2d', 'p3d', 或 '3d'，图3(b)中的不同残差单元
+        mode = model_cfg['Backbone']['mode']
+        assert mode in blocks_map.keys()
+        block = blocks_map[mode]
+
+        in_channels = model_cfg['Backbone']['in_channels'] # 输入通道数
+        layers      = model_cfg['Backbone']['layers'] # 每层Block数量
+        channels    = model_cfg['Backbone']['channels'] # 特征通道数
+        # 是否在推理时使用经过 BNNeck 后的特征 (embed_2)
+        self.inference_use_emb2 = model_cfg['use_emb2'] if 'use_emb2' in model_cfg else False
+
+        # 步长设置 (Strides)：3D 模式下，时间维度 (维度0) 的步长通常设为 1，避免过度压缩时序信息
+        if mode == '3d': 
+            strides = [
+                [1, 1], 
+                [1, 2, 2], # Stage 2: 空间下采样
+                [1, 2, 2], # Stage 3: 空间下采样
+                [1, 1, 1]
+            ]
+        else: 
+            # 2D/P3D 模式下，通常只在空间维度 (H, W) 进行下采样
+            strides = [
+                [1, 1], 
+                [2, 2], 
+                [2, 2], 
+                [1, 1]
+            ]
+
+        self.inplanes = channels[0]
+        # Layer 0 (Conv0)：初始卷积层，将输入图像映射到特征空间
+        # SetBlockWrapper 用于处理 2D CNN 输入 (将 Batch 和 Sequence 维度合并)
+        self.layer0 = SetBlockWrapper(nn.Sequential(
+            conv3x3(in_channels, self.inplanes, 1), 
+            nn.BatchNorm2d(self.inplanes), 
+            nn.ReLU(inplace=True)
+        ))
+        # Layer 1 (Stage 1)：Stage 1 始终使用 2D 卷积 (BasicBlock2D)，以节省计算资源
+        self.layer1 = SetBlockWrapper(self.make_layer(BasicBlock2D, channels[0], strides[0], blocks_num=layers[0], mode=mode))
+
+        # Layer 2~4 (Stage 2~4)：后续阶段根据 mode 选择使用 2D、3D 或 P3D Block
+        # P3D (Pseudo-3D) 是论文推荐的基准，平衡了性能和效率
+        self.layer2 = self.make_layer(block, channels[1], strides[1], blocks_num=layers[1], mode=mode)
+        self.layer3 = self.make_layer(block, channels[2], strides[2], blocks_num=layers[2], mode=mode)
+        self.layer4 = self.make_layer(block, channels[3], strides[3], blocks_num=layers[3], mode=mode)
+
+        # 如果是纯 2D 模式，所有层都需要用 SetBlockWrapper 包装
+        # 因为 2D 卷积无法直接处理 5D 张量 [n, c, s, h, w]
+        if mode == '2d': 
+            self.layer2 = SetBlockWrapper(self.layer2)
+            self.layer3 = SetBlockWrapper(self.layer3)
+            self.layer4 = SetBlockWrapper(self.layer4)
+
+        # Head (分类头)：独立的 FC 层和 BNNeck，对应 OpenGait 的通用 Head 设计
+        self.FCs = SeparateFCs(16, channels[3], channels[2]) # SeparateFCs: 对 HPP 切分出的每个部分独立使用全连接层
+        self.BNNecks = SeparateBNNecks(16, channels[2], class_num=model_cfg['SeparateBNNecks']['class_num'])
+
+        # Pooling (池化层)
+        self.TP = PackSequenceWrapper(torch.max) # 时序池化，聚合时间维度信息
+        self.HPP = HorizontalPoolingPyramid(bin_num=[16]) # 水平金字塔池化，提取人体不同高度的局部特征
+
+    def make_layer(self, block, planes, stride, blocks_num, mode='2d'):
+        # 构建残差阶段 (Stage)，包含下采样层 (downsample) 和多个残差块 (blocks)
+
+        # 如果步长 > 1 或者通道数不匹配，需要构建下采样层 (Shortcut)
+        if max(stride) > 1 or self.inplanes != planes * block.expansion:
+            if mode == '3d':
+                downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=[1, 1, 1], stride=stride, padding=[0, 0, 0], bias=False), nn.BatchNorm3d(planes * block.expansion))
+            elif mode == '2d':
+                downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride=stride), nn.BatchNorm2d(planes * block.expansion))
+            elif mode == 'p3d':
+                # P3D 下采样：使用 3D 卷积但核大小为 1x1x1，模拟空间下采样
+                downsample = nn.Sequential(nn.Conv3d(self.inplanes, planes * block.expansion, kernel_size=[1, 1, 1], stride=[1, *stride], padding=[0, 0, 0], bias=False), nn.BatchNorm3d(planes * block.expansion))
+            else:
+                raise TypeError('xxx')
+        else:
+            downsample = lambda x: x
+
+        layers = [block(self.inplanes, planes, stride=stride, downsample=downsample)]
+        self.inplanes = planes * block.expansion
+        s = [1, 1] if mode in ['2d', 'p3d'] else [1, 1, 1] # 后续的 Block 步长设为 1
+        for i in range(1, blocks_num):
+            layers.append(
+                    block(self.inplanes, planes, stride=s)
+            )
+        return nn.Sequential(*layers)
+
+    def forward(self, inputs):
+        ipts, labs, typs, vies, seqL = inputs # ipts: 输入图像 [n, s, h, w] 或 [n, c, s, h, w]
+        
+        if len(ipts[0].size()) == 4:
+            sils = ipts[0].unsqueeze(1) # 增加通道维度，确保输入为 [n, c, s, h, w]
+        else:
+            sils = ipts[0]
+            sils = sils.transpose(1, 2).contiguous()
+        assert sils.size(-1) in [44, 88] # 确保输入宽度符合预期 (64x44 或 128x88)
+
+        del ipts
+        # 骨干网络前向传播
+        out0 = self.layer0(sils) # Conv0
+        out1 = self.layer1(out0) # Stage 1
+        out2 = self.layer2(out1) # Stage 2
+        out3 = self.layer3(out2) # Stage 3
+        out4 = self.layer4(out3) # Stage 4 -> [n, c, s, h, w]
+
+        # 时序池化Temporal Pooling, TP
+        outs = self.TP(out4, seqL, options={"dim": 2})[0]  # 在时间维度 s 上取最大值，压缩为[n, c, h, w]
+
+        # 水平池化Horizontal Pooling Matching, HPM
+        feat = self.HPP(outs)  # 将特征图水平切分为多个条带 (如 16 个)，提取局部特征 -> [n, c, p]
+
+        # 映射与分类 (Head)
+        embed_1 = self.FCs(feat)  # 全连接层映射 [n, c, p]
+        embed_2, logits = self.BNNecks(embed_1)  # BN层归一化 + 分类Logits [n, c, p]
+
+        # 选择推理时使用的特征 (通常使用经过BN后的 embed_2)
+        if self.inference_use_emb2:
+                embed = embed_2
+        else:
+                embed = embed_1
+
+        retval = {
+            'training_feat': {
+                'triplet': {'embeddings': embed_1, 'labels': labs}, # 用于 Triplet Loss
+                'softmax': {'logits': logits, 'labels': labs} # 用于 Cross Entropy Loss
+            },
+            'visual_summary': {
+                'image/sils': rearrange(sils, 'n c s h w -> (n s) c h w'), # 可视化轮廓图
+            },
+            'inference_feat': {
+                'embeddings': embed # 推理输出
+            }
+        }
+
+        return retval
+</code></pre>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+</body>
+</html>
